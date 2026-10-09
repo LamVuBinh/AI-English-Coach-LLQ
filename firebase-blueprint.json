@@ -1,0 +1,162 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role, study aspirations, and stats",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "avatar": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "teacher"] },
+        "targetSchool": { "type": "string" },
+        "targetScore": { "type": "number" },
+        "currentEstimatedScore": { "type": "number" },
+        "dailyStudyMinutes": { "type": "number" },
+        "examDate": { "type": "string" },
+        "streakDays": { "type": "number" },
+        "completedTestsCount": { "type": "number" },
+        "weakTopics": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "name", "role"]
+    },
+    "Roadmap": {
+      "title": "Roadmap",
+      "description": "Personalized GDPT 2018 study roadmap for grade 10 entrance exam",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "targetSchool": { "type": "string" },
+        "targetScore": { "type": "number" },
+        "currentScore": { "type": "number" },
+        "examDate": { "type": "string" },
+        "isCustomized": { "type": "boolean" },
+        "phases": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "studentId", "phases"]
+    },
+    "Exam": {
+      "title": "Exam",
+      "description": "Mock exam or assignment aligned with Notification 3584/TB-SGDDT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "totalPoints": { "type": "number" },
+        "academicYear": { "type": "string" },
+        "standardNotice": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "isAssigned": { "type": "boolean" },
+        "dueDate": { "type": "string" },
+        "assignedClass": { "type": "string" },
+        "questions": { "type": "array" },
+        "category": { "type": "string" }
+      },
+      "required": ["id", "title", "questions"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Exam submission result with AI analytics and mistake diagnostics",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "examId": { "type": "string" },
+        "examTitle": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "submissionType": { "type": "string", "enum": ["online", "ocr_scan"] },
+        "score": { "type": "number" },
+        "totalPoints": { "type": "number" },
+        "correctCount": { "type": "number" },
+        "wrongCount": { "type": "number" },
+        "timeSpentSeconds": { "type": "number" },
+        "studentAnswers": { "type": "object" },
+        "overallEvaluation": { "type": "string" },
+        "encouragement": { "type": "string" },
+        "cognitivePerformance": { "type": "object" },
+        "weakGrammarTopics": { "type": "array" },
+        "itemAnalysis": { "type": "array" }
+      },
+      "required": ["id", "examId", "studentId", "score"]
+    },
+    "Mistake": {
+      "title": "Mistake",
+      "description": "Mistake notebook entry for student review",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "questionNumber": { "type": "number" },
+        "examId": { "type": "string" },
+        "examTitle": { "type": "string" },
+        "date": { "type": "string" },
+        "grammarTopic": { "type": "string" },
+        "cognitiveLevel": { "type": "string" },
+        "studentAnswer": { "type": "string" },
+        "correctAnswer": { "type": "string" },
+        "explanation": { "type": "string" },
+        "rootCause": { "type": "string" },
+        "whyWrong": { "type": "string" },
+        "whyCorrect": { "type": "string" },
+        "formulaAndRule": { "type": "string" },
+        "trapTip": { "type": "string" }
+      },
+      "required": ["id", "studentId", "questionNumber", "correctAnswer"]
+    },
+    "ClassStudent": {
+      "title": "ClassStudent",
+      "description": "Student analytics record for teacher dashboard",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "avatar": { "type": "string" },
+        "targetSchool": { "type": "string" },
+        "currentScore": { "type": "number" },
+        "targetScore": { "type": "number" },
+        "mockTestsDone": { "type": "number" },
+        "weakTopics": { "type": "array" },
+        "status": { "type": "string" },
+        "parentPhone": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and settings"
+    },
+    "/roadmaps/{roadmapId}": {
+      "schema": "Roadmap",
+      "description": "Personalized study roadmaps"
+    },
+    "/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Exam repository and assignments"
+    },
+    "/submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "Student exam submissions and AI evaluations"
+    },
+    "/mistakes/{mistakeId}": {
+      "schema": "Mistake",
+      "description": "Mistake notebook items saved by students"
+    },
+    "/class_students/{studentId}": {
+      "schema": "ClassStudent",
+      "description": "Teacher class student roster and performance analytics"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "AI English Coach - Ôn Thi Vào 10 TP.HCM",
+  "description": "Nền tảng cá nhân hóa ôn luyện Ngữ pháp Tiếng Anh vào lớp 10 theo Thông báo 3584 Sở GD&ĐT TP.HCM và CT GDPT 2018.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

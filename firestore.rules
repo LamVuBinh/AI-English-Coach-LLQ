@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // System ping health check
+    match /system_health/{id} {
+      allow read, write: if true;
+    }
+
+    // System Settings Collection
+    match /system_settings/{settingId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Users Collection (Allow read for Username-to-Email lookup before login, allow write for signed-in users)
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Roadmaps Collection
+    match /roadmaps/{roadmapId} {
+      allow read, write: if true;
+    }
+
+    // Exams Collection (Exams can be read publicly, created/edited by signed-in teachers/admins)
+    match /exams/{examId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Submissions Collection
+    match /submissions/{submissionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
+    }
+
+    // Mistakes Collection
+    match /mistakes/{mistakeId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Class Students Collection
+    match /class_students/{studentId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+  }
+}

@@ -6,17 +6,12 @@ export const INITIAL_STUDENT_PROFILE: StudentProfile = {
   avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
   targetSchool: 'THPT Nguyễn Thị Minh Khai',
   targetScore: 9.0,
-  currentEstimatedScore: 7.25,
+  currentEstimatedScore: 0,
   dailyStudyMinutes: 75,
-  examDate: '2026-06-06',
-  streakDays: 14,
-  completedTestsCount: 6,
-  weakTopics: [
-    { topic: 'Mệnh đề quan hệ & Mệnh đề rút gọn', errorCount: 5, severity: 'high' },
-    { topic: 'Dạng thức từ (Word Formation)', errorCount: 4, severity: 'high' },
-    { topic: 'Biến đổi câu với Suggest / Wish', errorCount: 3, severity: 'medium' },
-    { topic: 'Câu bị động với Modal Verbs', errorCount: 2, severity: 'medium' },
-  ],
+  examDate: '2027-06-01',
+  streakDays: 0,
+  completedTestsCount: 0,
+  weakTopics: [],
 };
 
 export const INITIAL_ROADMAP: PersonalizedRoadmap = {

@@ -166,26 +166,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [studentProfile, setStudentProfile] = useState<StudentProfile>(() => {
     const saved = localStorage.getItem('ai_coach_student_profile');
     const subs = submissions;
-
-    if (subs.length === 0) {
-      return {
-        ...INITIAL_STUDENT_PROFILE,
-        completedTestsCount: 0,
-        currentEstimatedScore: 0,
-        weakTopics: [],
-      };
+    const testsDone = subs.length;
+    let avgScore = 0;
+    if (testsDone > 0) {
+      const total = subs.reduce((acc, sub) => acc + sub.score, 0);
+      avgScore = Number((total / testsDone).toFixed(2));
     }
 
+    const calculateInitStreak = (sList: SubmissionResult[]) => {
+      if (!sList || sList.length === 0) return 0;
+      const dates = Array.from(new Set(sList.map(s => s.submittedAt ? s.submittedAt.split('T')[0] : ''))).filter(Boolean);
+      return Math.max(1, dates.length);
+    };
+
+    const actualStreak = calculateInitStreak(subs);
+
     if (saved) {
-      const parsed: StudentProfile = JSON.parse(saved);
-      return parsed;
+      try {
+        const parsed: StudentProfile = JSON.parse(saved);
+        return {
+          ...parsed,
+          examDate: parsed.examDate && parsed.examDate !== '2026-06-06' && parsed.examDate !== '2027-01-01' ? parsed.examDate : '2027-06-01',
+          completedTestsCount: testsDone,
+          currentEstimatedScore: testsDone > 0 ? avgScore : 0,
+          streakDays: parsed.streakDays !== undefined && parsed.streakDays !== 14 ? parsed.streakDays : actualStreak,
+          weakTopics: testsDone > 0 ? parsed.weakTopics : [],
+        };
+      } catch (e) {
+        // fallback
+      }
     }
 
     return {
       ...INITIAL_STUDENT_PROFILE,
-      completedTestsCount: 0,
-      currentEstimatedScore: 0,
-      weakTopics: [],
+      completedTestsCount: testsDone,
+      currentEstimatedScore: testsDone > 0 ? avgScore : 0,
+      streakDays: actualStreak,
+      weakTopics: testsDone > 0 ? INITIAL_STUDENT_PROFILE.weakTopics : [],
     };
   });
 
@@ -205,7 +222,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return localStorage.getItem('ai_coach_diagnostic_exam_id') || 'exam-diagnostic-1';
   });
 
-  // Synchronize studentProfile score and completedTestsCount with actual submissions
+  // Synchronize studentProfile score, completedTestsCount, and streakDays with actual submissions
   useEffect(() => {
     const testsDone = submissions.length;
     let avgScore = 0;
@@ -214,14 +231,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       avgScore = Number((total / testsDone).toFixed(2));
     }
 
-    setStudentProfile((prev) => {
-      if (prev.completedTestsCount === testsDone && prev.currentEstimatedScore === (testsDone > 0 ? avgScore : 0)) {
-        return prev;
+    const calculateActualStreak = (sList: SubmissionResult[]) => {
+      if (!sList || sList.length === 0) return 0;
+      const dates = Array.from(new Set(sList.map(s => s.submittedAt ? s.submittedAt.split('T')[0] : ''))).filter(Boolean);
+      if (dates.length === 0) return 0;
+      dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+      
+      const todayStr = new Date().toISOString().split('T')[0];
+      const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      
+      if (dates[0] !== todayStr && dates[0] !== yesterdayStr) {
+        return 1;
       }
+      
+      let streak = 0;
+      let expectedDate = new Date(dates[0]);
+      
+      for (let i = 0; i < dates.length; i++) {
+        const dStr = expectedDate.toISOString().split('T')[0];
+        if (dates.includes(dStr)) {
+          streak++;
+          expectedDate.setDate(expectedDate.getDate() - 1);
+        } else {
+          break;
+        }
+      }
+      return Math.max(1, streak);
+    };
+
+    const actualStreak = calculateActualStreak(submissions);
+
+    setStudentProfile((prev) => {
       return {
         ...prev,
         completedTestsCount: testsDone,
         currentEstimatedScore: testsDone > 0 ? avgScore : 0,
+        streakDays: actualStreak,
         weakTopics: testsDone > 0 ? prev.weakTopics : [],
       };
     });

@@ -47,6 +47,15 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
   // Completed exams map
   const completedExamIds = new Set(submissions.map((s) => s.examId));
 
+  const examDateStr = studentProfile.examDate || '2027-06-01';
+  const targetDate = new Date(examDateStr);
+  const today = new Date();
+  targetDate.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const remainingExamDays = Math.max(0, diffDays);
+  const formattedExamDate = targetDate.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
   const diagnosticExam =
     exams.find((e) => e.id === diagnosticExamId) ||
     SAMPLE_EXAMS.find((e) => e.id === diagnosticExamId) ||
@@ -107,7 +116,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
             </div>
 
             {/* Quick Metrics Bar */}
-            <div className="grid grid-cols-3 gap-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
               <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10 text-center">
                 <span className="text-[11px] text-indigo-200 block font-medium">Điểm Ước Tính</span>
                 <span className="text-xl font-black text-amber-300">
@@ -131,6 +140,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
                 <span className="text-xl font-black text-white">
                   {studentProfile.completedTestsCount}{' '}
                   <span className="text-xs text-indigo-200 font-normal">đề</span>
+                </span>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10 text-center">
+                <span className="text-[11px] text-indigo-200 block font-medium flex items-center justify-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-amber-300" /> Ngày thi ({formattedExamDate})
+                </span>
+                <span className="text-xl font-black text-amber-300">
+                  {remainingExamDays}{' '}
+                  <span className="text-xs text-white/70 font-normal">ngày nữa</span>
                 </span>
               </div>
             </div>

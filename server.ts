@@ -22,19 +22,99 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Initialize Gemini Client
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
+// ==========================================
+// SYSTEM & MULTI-TIER GEMINI AI CONFIGURATION
+// ==========================================
+// Solution 2: Admin / Global System Key & Model
+let systemCustomApiKey = process.env.SYSTEM_GEMINI_API_KEY || '';
+let systemDefaultModel = 'gemini-3.1-flash-lite';
+let isSystemQuotaExhausted = false;
+let systemQuotaResetTimer: any = null;
+
+// Available / Recommended Models for 2026
+const AVAILABLE_GEMINI_MODELS = [
+  {
+    id: 'gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash Lite',
+    description: 'Tốc độ phản hồi cực nhanh, tiết kiệm tín dụng tối đa, tối ưu cho bóc tách đề thi và chấm điểm tự động.',
+    isRecommended: true,
+    tag: 'Khuyên dùng (Nhanh & Tiết kiệm)',
   },
-});
+  {
+    id: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    description: 'Cân bằng hoàn hảo giữa năng lực phân tích ngữ pháp sư phạm chuyên sâu và tốc độ xử lý.',
+    isRecommended: false,
+    tag: 'Tiêu chuẩn Sư phạm',
+  },
+  {
+    id: 'gemini-4-argon',
+    name: 'Gemini 4 Argon',
+    description: 'Mô hình tư duy cao cấp, giải mã các câu hỏi bẫy khó điểm 9.0+ và bài đọc hiểu phức tạp.',
+    isRecommended: false,
+    tag: 'Tư duy Cao cấp',
+  },
+  {
+    id: 'gemini-flash-latest',
+    name: 'Gemini Flash Latest',
+    description: 'Phiên bản Flash mới nhất luôn được cập nhật tự động từ Google.',
+    isRecommended: false,
+    tag: 'Bản Cập Nhật Mới Nhất',
+  },
+];
+
+function getSystemApiKey(): string {
+  return (systemCustomApiKey || process.env.GEMINI_API_KEY || '').trim();
+}
+
+function createGeminiClient(apiKey: string): GoogleGenAI {
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+}
+
+function maskApiKey(key: string): string {
+  if (!key) return '';
+  if (key.length <= 8) return '••••••••';
+  return `${key.slice(0, 6)}••••••••${key.slice(-4)}`;
+}
+
+// Extract credentials sent from client (User personal key / model)
+interface AiCredentials {
+  userApiKey?: string;
+  userModel?: string;
+  usePersonalKey?: boolean;
+}
+
+function extractAiCredentials(req: express.Request): AiCredentials {
+  const userApiKey = (req.headers['x-gemini-api-key'] as string) || (req.body?.userApiKey as string) || '';
+  const userModel = (req.headers['x-gemini-model'] as string) || (req.body?.userModel as string) || '';
+  const usePersonalKey = (req.headers['x-use-personal-key'] === 'true') || !!req.body?.usePersonalKey;
+  return {
+    userApiKey: userApiKey.trim(),
+    userModel: userModel.trim(),
+    usePersonalKey,
+  };
+}
 
 // Helper for fallback error handling
 const handleGeminiError = (res: express.Response, error: any) => {
   console.error('Gemini API Error:', error);
+
+  if (error?.requiresUserKey || error?.message === 'SYSTEM_QUOTA_EXCEEDED' || error?.code === 'SYSTEM_QUOTA_EXCEEDED') {
+    return res.status(429).json({
+      error: 'SYSTEM_QUOTA_EXCEEDED',
+      message: error.message || 'API key chung của hệ thống đã hết tín dụng. Vui lòng cấu hình API key cá nhân của bạn để tiếp tục sử dụng tính năng có sự hỗ trợ của AI.',
+      requiresUserKey: true,
+      details: error.toString(),
+    });
+  }
+
   res.status(500).json({
     error: error.message || 'Lỗi khi kết nối với Gemini AI',
     details: error.toString(),
@@ -71,43 +151,46 @@ Nhiệm vụ: Trích xuất chính xác câu trả lời của học sinh từ �
 Hãy trả về đúng định dạng JSON.
 `;
 
-    const response = await callGeminiWithRetry({
-      model: 'gemini-3.1-flash-lite',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: detectedMime,
-              data: cleanBase64,
-            },
-          },
-          { text: prompt },
-        ],
-      },
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            detectedQuestions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  questionNumber: { type: Type.INTEGER },
-                  studentAnswer: { type: Type.STRING },
-                  confidence: { type: Type.STRING, description: 'HIGH, MEDIUM, LOW' },
-                  notes: { type: Type.STRING, description: 'Ghi chú chữ mờ hoặc gạch xóa nếu có' },
-                },
-                required: ['questionNumber', 'studentAnswer'],
+    const response = await callGeminiWithRetry(
+      {
+        model: 'gemini-3.1-flash-lite',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: detectedMime,
+                data: cleanBase64,
               },
             },
-            generalNotes: { type: Type.STRING, description: 'Nhận xét tổng quan về chất lượng chữ viết / file PDF / ảnh chụp' },
+            { text: prompt },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              detectedQuestions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    questionNumber: { type: Type.INTEGER },
+                    studentAnswer: { type: Type.STRING },
+                    confidence: { type: Type.STRING, description: 'HIGH, MEDIUM, LOW' },
+                    notes: { type: Type.STRING, description: 'Ghi chú chữ mờ hoặc gạch xóa nếu có' },
+                  },
+                  required: ['questionNumber', 'studentAnswer'],
+                },
+              },
+              generalNotes: { type: Type.STRING, description: 'Nhận xét tổng quan về chất lượng chữ viết / file PDF / ảnh chụp' },
+            },
+            required: ['detectedQuestions'],
           },
-          required: ['detectedQuestions'],
         },
       },
-    });
+      extractAiCredentials(req)
+    );
 
     const jsonStr = response.text?.trim() || '{}';
     const parsed = JSON.parse(jsonStr);
@@ -118,42 +201,119 @@ Hãy trả về đúng định dạng JSON.
 });
 
 // ==========================================
-// RETRY & FALLBACK HELPERS
+// MULTI-TIER RETRY & EXECUTION HELPERS
 // ==========================================
-async function callGeminiWithRetry(options: any, maxRetries = 4) {
-  let attempt = 0;
-  if (!options.model) {
-    options.model = 'gemini-3.1-flash-lite';
+async function callGeminiWithRetry(options: any, credentials?: AiCredentials, maxRetries = 3) {
+  const systemKey = getSystemApiKey();
+  const userKey = credentials?.userApiKey || '';
+  const userModel = credentials?.userModel || '';
+  const usePersonalKey = credentials?.usePersonalKey;
+
+  // Decision logic based on User Specification:
+  // "Lưu ý ưu tiên API key [chung] nhưng nếu API key chung bị hết tín dụng thì yêu cầu người dùng nhập API key cá nhân để sử dụng tính năng có sự hỗ trợ của AI."
+  let primaryKey = '';
+  let primaryModel = '';
+  let fallbackKey = '';
+  let fallbackModel = '';
+
+  if (usePersonalKey && userKey) {
+    primaryKey = userKey;
+    primaryModel = userModel || options.model || 'gemini-3.1-flash-lite';
+    fallbackKey = !isSystemQuotaExhausted ? systemKey : '';
+    fallbackModel = systemDefaultModel;
+  } else {
+    // Priority: System Key first, unless exhausted
+    if (systemKey && !isSystemQuotaExhausted) {
+      primaryKey = systemKey;
+      primaryModel = options.model || systemDefaultModel || 'gemini-3.1-flash-lite';
+      fallbackKey = userKey;
+      fallbackModel = userModel || primaryModel;
+    } else {
+      // System key is either missing or exhausted
+      if (userKey) {
+        primaryKey = userKey;
+        primaryModel = userModel || options.model || 'gemini-3.1-flash-lite';
+      } else {
+        const quotaErr: any = new Error(
+          isSystemQuotaExhausted
+            ? 'API key chung của hệ thống đã hết tín dụng. Vui lòng nhập API key cá nhân để tiếp tục sử dụng tính năng AI.'
+            : 'Hệ thống chưa được cấu hình API key. Vui lòng nhập API key cá nhân của bạn để sử dụng tính năng AI.'
+        );
+        quotaErr.requiresUserKey = true;
+        quotaErr.code = 'SYSTEM_QUOTA_EXCEEDED';
+        throw quotaErr;
+      }
+    }
   }
 
+  // Attempt with primary key
+  try {
+    return await executeWithKey(primaryKey, primaryModel, options, maxRetries);
+  } catch (primaryErr: any) {
+    const errStr = String(primaryErr?.message || primaryErr || '');
+    const isQuotaOrLimit =
+      errStr.includes('429') ||
+      errStr.includes('RESOURCE_EXHAUSTED') ||
+      errStr.includes('quota') ||
+      errStr.includes('credits') ||
+      errStr.includes('high demand');
+
+    // If primary was system key and got quota exceeded, mark it and try fallback
+    if (primaryKey === systemKey && isQuotaOrLimit) {
+      console.warn('System API key quota exhausted! Marking isSystemQuotaExhausted = true');
+      isSystemQuotaExhausted = true;
+
+      // Auto clear after 10 minutes to retry later
+      if (!systemQuotaResetTimer) {
+        systemQuotaResetTimer = setTimeout(() => {
+          isSystemQuotaExhausted = false;
+          systemQuotaResetTimer = null;
+        }, 10 * 60 * 1000);
+      }
+    }
+
+    if (fallbackKey && fallbackKey !== primaryKey) {
+      console.log('Falling back to secondary API key...');
+      try {
+        return await executeWithKey(fallbackKey, fallbackModel, options, maxRetries);
+      } catch (fallbackErr: any) {
+        throw fallbackErr;
+      }
+    }
+
+    // If quota error and no user key, prompt user for personal key
+    if (isQuotaOrLimit && !userKey) {
+      const quotaErr: any = new Error('API key chung của hệ thống đã hết tín dụng. Vui lòng nhập API key cá nhân để tiếp tục sử dụng tính năng AI.');
+      quotaErr.requiresUserKey = true;
+      quotaErr.code = 'SYSTEM_QUOTA_EXCEEDED';
+      throw quotaErr;
+    }
+
+    throw primaryErr;
+  }
+}
+
+async function executeWithKey(apiKey: string, modelName: string, options: any, maxRetries = 3) {
+  const client = createGeminiClient(apiKey);
+  const callOpts = { ...options, model: modelName || options.model || 'gemini-3.1-flash-lite' };
+
+  let attempt = 0;
   while (attempt < maxRetries) {
     try {
-      return await ai.models.generateContent(options);
+      return await client.models.generateContent(callOpts);
     } catch (err: any) {
       attempt++;
       const errStr = String(err?.message || err || '');
       const isRetryable =
         errStr.includes('503') ||
-        errStr.includes('429') ||
         errStr.includes('high demand') ||
         errStr.includes('UNAVAILABLE') ||
-        errStr.includes('RESOURCE_EXHAUSTED') ||
         errStr.includes('fetch failed') ||
         errStr.includes('ECONNRESET') ||
         errStr.includes('socket') ||
-        errStr.includes('hang up') ||
-        errStr.includes('timeout') ||
-        errStr.includes('connect');
+        errStr.includes('timeout');
 
       if (isRetryable && attempt < maxRetries) {
-        // Smoothly rotate models on high demand or rate limit
-        const currentModel = options.model;
-        if (currentModel === 'gemini-3.1-flash-lite') {
-          options.model = 'gemini-3.8-flash';
-        } else {
-          options.model = 'gemini-3.1-flash-lite';
-        }
-
         const delay = Math.min(attempt * 400, 1500);
         await new Promise((r) => setTimeout(r, delay));
         continue;
@@ -163,6 +323,128 @@ async function callGeminiWithRetry(options: any, maxRetries = 4) {
   }
   throw new Error('Không thể kết nối với dịch vụ Gemini AI sau nhiều lần thử lại');
 }
+
+// ==========================================
+// API CONFIGURATION ENDPOINTS (SOLUTIONS 1 & 2)
+// ==========================================
+
+// 1. Get Available Models list (Solution 1: "Chọn phiên bản tải lên nút tải lên phiên bản mới nhất")
+app.get('/api/ai/models', (_req, res) => {
+  res.json({
+    models: AVAILABLE_GEMINI_MODELS,
+    defaultModel: systemDefaultModel,
+  });
+});
+
+// 2. Test Connection (Solution 1 & 2: "Nút kiểm tra kết nối")
+app.post('/api/ai/test-connection', async (req, res) => {
+  const { apiKey, model, testType = 'user' } = req.body;
+  const targetKey = (apiKey || (testType === 'system' ? getSystemApiKey() : '')).trim();
+  const targetModel = (model || (testType === 'system' ? systemDefaultModel : 'gemini-3.1-flash-lite')).trim();
+
+  if (!targetKey) {
+    return res.status(400).json({
+      success: false,
+      error: 'Vui lòng nhập API Key để kiểm tra kết nối.',
+    });
+  }
+
+  const startTime = Date.now();
+  try {
+    const testClient = createGeminiClient(targetKey);
+    const result = await testClient.models.generateContent({
+      model: targetModel,
+      contents: 'Hello! Respond with exactly two words: "AI Connected".',
+    });
+
+    const latencyMs = Date.now() - startTime;
+    const responseText = result.text?.trim() || '';
+
+    // If testing system key and it was marked exhausted, reset flag on success!
+    if (testType === 'system' || targetKey === getSystemApiKey()) {
+      isSystemQuotaExhausted = false;
+    }
+
+    res.json({
+      success: true,
+      latencyMs,
+      modelUsed: targetModel,
+      responseText,
+      message: `Kết nối thành công tới Gemini AI (${latencyMs}ms)`,
+    });
+  } catch (err: any) {
+    const latencyMs = Date.now() - startTime;
+    const errStr = String(err?.message || err || '');
+    const isQuotaError =
+      errStr.includes('429') ||
+      errStr.includes('RESOURCE_EXHAUSTED') ||
+      errStr.includes('quota') ||
+      errStr.includes('limit') ||
+      errStr.includes('credits');
+
+    let friendlyMessage = err.message || 'Lỗi kiểm tra kết nối API Key.';
+    if (isQuotaError) {
+      friendlyMessage = 'API Key đã hết hạn mức sử dụng (Quota / Credits exhausted). Vui lòng kiểm tra lại tài khoản hoặc đổi key khác.';
+    } else if (errStr.includes('API_KEY_INVALID') || errStr.includes('invalid') || errStr.includes('400')) {
+      friendlyMessage = 'API Key không hợp lệ hoặc sai định dạng. Vui lòng kiểm tra lại ký tự API key.';
+    }
+
+    res.status(400).json({
+      success: false,
+      latencyMs,
+      isQuotaError,
+      error: friendlyMessage,
+      details: errStr,
+    });
+  }
+});
+
+// 3. Get System AI Config (Solution 2: "Người quản trị cấu hình API chung")
+app.get('/api/admin/ai-config', (_req, res) => {
+  const currentKey = getSystemApiKey();
+  res.json({
+    hasSystemKey: !!currentKey,
+    maskedKey: maskApiKey(currentKey),
+    systemModel: systemDefaultModel,
+    isQuotaExceeded: isSystemQuotaExhausted,
+    source: systemCustomApiKey ? 'custom' : (process.env.GEMINI_API_KEY ? 'env' : 'none'),
+  });
+});
+
+// 4. Update System AI Config (Solution 2: Lưu API Key chung toàn web)
+app.post('/api/admin/ai-config', (req, res) => {
+  const { apiKey, systemModel, action, resetQuota } = req.body;
+
+  if (action === 'clear') {
+    systemCustomApiKey = '';
+    isSystemQuotaExhausted = false;
+  } else if (apiKey !== undefined) {
+    systemCustomApiKey = apiKey.trim();
+    isSystemQuotaExhausted = false;
+  }
+
+  if (systemModel && AVAILABLE_GEMINI_MODELS.some((m) => m.id === systemModel)) {
+    systemDefaultModel = systemModel;
+  }
+
+  if (resetQuota) {
+    isSystemQuotaExhausted = false;
+  }
+
+  const currentKey = getSystemApiKey();
+  res.json({
+    success: true,
+    message: 'Cập nhật cấu hình AI toàn trang web thành công!',
+    config: {
+      hasSystemKey: !!currentKey,
+      maskedKey: maskApiKey(currentKey),
+      systemModel: systemDefaultModel,
+      isQuotaExceeded: isSystemQuotaExhausted,
+      source: systemCustomApiKey ? 'custom' : (process.env.GEMINI_API_KEY ? 'env' : 'none'),
+    },
+  });
+});
+
 
 function cleanQuestionContent(text: string): string {
   if (!text) return '';
@@ -605,47 +887,50 @@ QUY TẮC BÓC TÁCH BẮT BUỘC (TUYỆT ĐỐI TUÂN THỦ):
     let parsedResult: any = null;
 
     try {
-      const response = await callGeminiWithRetry({
-        model: 'gemini-3.1-flash-lite',
-        contents: { parts },
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              totalQuestions: { type: Type.INTEGER },
-              durationMinutes: { type: Type.INTEGER },
-              questions: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    number: { type: Type.INTEGER },
-                    section: { type: Type.STRING },
-                    type: { type: Type.STRING, description: 'multiple_choice | word_form | rewrite | true_false' },
-                    questionText: { type: Type.STRING },
-                    passageText: { type: Type.STRING, description: 'Đoạn văn đọc hiểu nếu có' },
-                    options: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                      description: 'Danh sách 4 phương án A, B, C, D (nếu có)',
+      const response = await callGeminiWithRetry(
+        {
+          model: 'gemini-3.1-flash-lite',
+          contents: { parts },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                totalQuestions: { type: Type.INTEGER },
+                durationMinutes: { type: Type.INTEGER },
+                questions: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      id: { type: Type.STRING },
+                      number: { type: Type.INTEGER },
+                      section: { type: Type.STRING },
+                      type: { type: Type.STRING, description: 'multiple_choice | word_form | rewrite | true_false' },
+                      questionText: { type: Type.STRING },
+                      passageText: { type: Type.STRING, description: 'Đoạn văn đọc hiểu nếu có' },
+                      options: {
+                        type: Type.ARRAY,
+                        items: { type: Type.STRING },
+                        description: 'Danh sách 4 phương án A, B, C, D (nếu có)',
+                      },
+                      correctAnswer: { type: Type.STRING },
+                      cognitiveLevel: { type: Type.STRING, description: 'Nhận biết | Thông hiểu | Vận dụng | Vận dụng cao' },
+                      grammarTopic: { type: Type.STRING },
+                      points: { type: Type.NUMBER },
+                      explanation: { type: Type.STRING },
                     },
-                    correctAnswer: { type: Type.STRING },
-                    cognitiveLevel: { type: Type.STRING, description: 'Nhận biết | Thông hiểu | Vận dụng | Vận dụng cao' },
-                    grammarTopic: { type: Type.STRING },
-                    points: { type: Type.NUMBER },
-                    explanation: { type: Type.STRING },
+                    required: ['number', 'section', 'questionText', 'correctAnswer', 'cognitiveLevel', 'grammarTopic', 'explanation'],
                   },
-                  required: ['number', 'section', 'questionText', 'correctAnswer', 'cognitiveLevel', 'grammarTopic', 'explanation'],
                 },
               },
+              required: ['title', 'questions'],
             },
-            required: ['title', 'questions'],
           },
         },
-      });
+        extractAiCredentials(req)
+      );
 
       const jsonStr = response?.text?.trim() || '{}';
       parsedResult = JSON.parse(jsonStr);
@@ -730,67 +1015,70 @@ Yêu cầu phân tích:
 Hãy trả về định dạng JSON chuẩn.
 `;
 
-    const response = await callGeminiWithRetry({
-      model: 'gemini-3.1-flash-lite',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            score: { type: Type.NUMBER },
-            totalQuestions: { type: Type.INTEGER },
-            correctCount: { type: Type.INTEGER },
-            wrongCount: { type: Type.INTEGER },
-            overallEvaluation: { type: Type.STRING },
-            encouragement: { type: Type.STRING },
-            cognitivePerformance: {
-              type: Type.OBJECT,
-              properties: {
-                recognitionPercent: { type: Type.NUMBER, description: '% đúng câu Nhận biết' },
-                comprehensionPercent: { type: Type.NUMBER, description: '% đúng câu Thông hiểu' },
-                applicationPercent: { type: Type.NUMBER, description: '% đúng câu Vận dụng' },
-                higherApplicationPercent: { type: Type.NUMBER, description: '% đúng câu Vận dụng cao' },
-              },
-            },
-            weakGrammarTopics: {
-              type: Type.ARRAY,
-              items: {
+    const response = await callGeminiWithRetry(
+      {
+        model: 'gemini-3.1-flash-lite',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              score: { type: Type.NUMBER },
+              totalQuestions: { type: Type.INTEGER },
+              correctCount: { type: Type.INTEGER },
+              wrongCount: { type: Type.INTEGER },
+              overallEvaluation: { type: Type.STRING },
+              encouragement: { type: Type.STRING },
+              cognitivePerformance: {
                 type: Type.OBJECT,
                 properties: {
-                  topicName: { type: Type.STRING },
-                  errorFrequency: { type: Type.INTEGER },
-                  urgency: { type: Type.STRING, description: 'CAO | TRUNG BÌNH | THẤP' },
-                  advice: { type: Type.STRING },
+                  recognitionPercent: { type: Type.NUMBER, description: '% đúng câu Nhận biết' },
+                  comprehensionPercent: { type: Type.NUMBER, description: '% đúng câu Thông hiểu' },
+                  applicationPercent: { type: Type.NUMBER, description: '% đúng câu Vận dụng' },
+                  higherApplicationPercent: { type: Type.NUMBER, description: '% đúng câu Vận dụng cao' },
                 },
-                required: ['topicName', 'urgency', 'advice'],
+              },
+              weakGrammarTopics: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    topicName: { type: Type.STRING },
+                    errorFrequency: { type: Type.INTEGER },
+                    urgency: { type: Type.STRING, description: 'CAO | TRUNG BÌNH | THẤP' },
+                    advice: { type: Type.STRING },
+                  },
+                  required: ['topicName', 'urgency', 'advice'],
+                },
+              },
+              itemAnalysis: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    questionNumber: { type: Type.INTEGER },
+                    isCorrect: { type: Type.BOOLEAN },
+                    studentAnswer: { type: Type.STRING },
+                    correctAnswer: { type: Type.STRING },
+                    grammarTopic: { type: Type.STRING },
+                    cognitiveLevel: { type: Type.STRING },
+                    rootCause: { type: Type.STRING },
+                    whyWrong: { type: Type.STRING },
+                    whyCorrect: { type: Type.STRING },
+                    formulaAndRule: { type: Type.STRING },
+                    trapTip: { type: Type.STRING },
+                  },
+                  required: ['questionNumber', 'isCorrect', 'studentAnswer', 'correctAnswer', 'grammarTopic'],
+                },
               },
             },
-            itemAnalysis: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  questionNumber: { type: Type.INTEGER },
-                  isCorrect: { type: Type.BOOLEAN },
-                  studentAnswer: { type: Type.STRING },
-                  correctAnswer: { type: Type.STRING },
-                  grammarTopic: { type: Type.STRING },
-                  cognitiveLevel: { type: Type.STRING },
-                  rootCause: { type: Type.STRING },
-                  whyWrong: { type: Type.STRING },
-                  whyCorrect: { type: Type.STRING },
-                  formulaAndRule: { type: Type.STRING },
-                  trapTip: { type: Type.STRING },
-                },
-                required: ['questionNumber', 'isCorrect', 'studentAnswer', 'correctAnswer', 'grammarTopic'],
-              },
-            },
+            required: ['score', 'correctCount', 'wrongCount', 'overallEvaluation', 'weakGrammarTopics', 'itemAnalysis'],
           },
-          required: ['score', 'correctCount', 'wrongCount', 'overallEvaluation', 'weakGrammarTopics', 'itemAnalysis'],
         },
       },
-    });
+      extractAiCredentials(req)
+    );
 
     const jsonStr = response.text?.trim() || '{}';
     res.json(JSON.parse(jsonStr));
@@ -876,10 +1164,11 @@ Trả về định dạng JSON chuẩn.
     let parsedResult: any = null;
 
     try {
-      const response = await callGeminiWithRetry({
-        model: 'gemini-3.1-flash-lite',
-        contents: { parts },
-        config: {
+      const response = await callGeminiWithRetry(
+        {
+          model: 'gemini-3.1-flash-lite',
+          contents: { parts },
+          config: {
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -984,7 +1273,9 @@ Trả về định dạng JSON chuẩn.
             required: ['score', 'correctCount', 'wrongCount', 'overallEvaluation', 'weakGrammarTopics', 'itemAnalysis', 'adjustedRoadmap', 'roadmapChangesSummary'],
           },
         },
-      });
+      },
+      extractAiCredentials(req)
+    );
 
       const jsonStr = response.text?.trim() || '{}';
       parsedResult = JSON.parse(jsonStr);
@@ -1334,10 +1625,11 @@ Yêu cầu lộ trình:
 Hãy trả về định dạng JSON chuẩn.
 `;
 
-    const response = await callGeminiWithRetry({
-      model: 'gemini-3.1-flash-lite',
-      contents: prompt,
-      config: {
+    const response = await callGeminiWithRetry(
+      {
+        model: 'gemini-3.1-flash-lite',
+        contents: prompt,
+        config: {
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -1391,7 +1683,9 @@ Hãy trả về định dạng JSON chuẩn.
           required: ['roadmapTitle', 'summaryStrategy', 'phases', 'coachTips'],
         },
       },
-    });
+    },
+    extractAiCredentials(req)
+  );
 
     const jsonStr = response.text?.trim() || '{}';
     res.json(JSON.parse(jsonStr));
@@ -1420,10 +1714,11 @@ Kèm đáp án đúng và giải thích chi tiết, công thức áp dụng.
 Trả về JSON.
 `;
 
-    const response = await callGeminiWithRetry({
-      model: 'gemini-3.1-flash-lite',
-      contents: prompt,
-      config: {
+    const response = await callGeminiWithRetry(
+      {
+        model: 'gemini-3.1-flash-lite',
+        contents: prompt,
+        config: {
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -1453,7 +1748,9 @@ Trả về JSON.
           required: ['questions'],
         },
       },
-    });
+    },
+    extractAiCredentials(req)
+  );
 
     const jsonStr = response.text?.trim() || '{}';
     res.json(JSON.parse(jsonStr));
@@ -1483,10 +1780,11 @@ Hãy xuất ra:
 Trả về JSON.
 `;
 
-    const response = await callGeminiWithRetry({
-      model: 'gemini-3.1-flash-lite',
-      contents: prompt,
-      config: {
+    const response = await callGeminiWithRetry(
+      {
+        model: 'gemini-3.1-flash-lite',
+        contents: prompt,
+        config: {
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -1543,7 +1841,9 @@ Trả về JSON.
           required: ['classAverageScore', 'topCommonMistakes', 'teacherActionPlan'],
         },
       },
-    });
+    },
+    extractAiCredentials(req)
+  );
 
     const jsonStr = response.text?.trim() || '{}';
     res.json(JSON.parse(jsonStr));

@@ -19,6 +19,7 @@ import {
   LogOut,
   ShieldCheck,
   Lock,
+  KeyRound,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -39,6 +40,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenGoalModal }) => {
     currentAccount,
     setAuthModalOpen,
     logout,
+    openAiConfigModal,
   } = useApp();
 
   // Calculate days left to exam
@@ -272,6 +274,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenGoalModal }) => {
                 <span>Còn <strong>{daysLeft}</strong> ngày thi</span>
               </div>
             )}
+
+            {/* AI Key Configuration Trigger Button */}
+            <button
+              onClick={() => openAiConfigModal()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all shadow-2xs cursor-pointer hover:border-indigo-300"
+              title="Cấu hình API Key Trí tuệ nhân tạo (Giải pháp 1: Cá nhân, Giải pháp 2: Chung toàn web)"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-amber-500" />
+              <span className="hidden sm:inline">Cấu hình AI Key</span>
+              <span className="sm:hidden">AI Key</span>
+            </button>
 
             {/* Auth Account Trigger / User Capsule */}
             {authUser ? (

@@ -29,6 +29,7 @@ import {
   Eye,
   Target,
   Star,
+  KeyRound,
 } from 'lucide-react';
 
 export const TeacherDashboard: React.FC = () => {
@@ -44,6 +45,7 @@ export const TeacherDashboard: React.FC = () => {
     showToast,
     diagnosticExamId,
     setDiagnosticExam,
+    openAiConfigModal,
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -204,6 +206,14 @@ export const TeacherDashboard: React.FC = () => {
             className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 border border-indigo-400/30 text-white font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
           >
             <BarChart3 className="w-4 h-4 text-amber-300" /> Báo Cáo Phân Tích
+          </button>
+
+          <button
+            onClick={() => openAiConfigModal()}
+            className="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 border border-violet-400/30 text-white font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+            title="Cấu hình API Key chung cho toàn trang web (Giải pháp 2)"
+          >
+            <KeyRound className="w-4 h-4 text-amber-300" /> Cấu Hình AI Toàn Web
           </button>
         </div>
       </div>

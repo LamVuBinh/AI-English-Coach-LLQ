@@ -13,6 +13,7 @@ import { TeacherDashboard } from './components/TeacherDashboard';
 import { ExamManagement } from './components/ExamManagement';
 import { ClassAnalytics } from './components/ClassAnalytics';
 import { UserManagement } from './components/UserManagement';
+import { AiConfigModal } from './components/AiConfigModal';
 import { Sparkles, CheckCircle2, MessageSquare, X, Send, Bot, Loader2, ShieldAlert, Lock } from 'lucide-react';
 
 const MainApp: React.FC = () => {
@@ -26,6 +27,9 @@ const MainApp: React.FC = () => {
     setAuthModalOpen,
     authUser,
     currentAccount,
+    aiConfigModalOpen,
+    setAiConfigModalOpen,
+    quotaExceededMessage,
   } = useApp();
   const [goalModalOpen, setGoalModalOpen] = useState(false);
 
@@ -281,6 +285,13 @@ Hãy trả lời ngắn gọn (3-5 câu), dễ hiểu, cung cấp công thức, 
 
       {/* Firebase Authentication Modal */}
       <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+
+      {/* AI Key Configuration Modal (Solutions 1 & 2) */}
+      <AiConfigModal
+        isOpen={aiConfigModalOpen}
+        onClose={() => setAiConfigModalOpen(false)}
+        quotaExceededMessage={quotaExceededMessage}
+      />
 
       {/* Global Toast Notification */}
       {toastMessage && (

@@ -137,6 +137,12 @@ interface AppContextType {
   // Toast / notification
   toastMessage: string | null;
   showToast: (msg: string) => void;
+
+  // AI Configuration Modal & Quota handling
+  aiConfigModalOpen: boolean;
+  setAiConfigModalOpen: (open: boolean) => void;
+  quotaExceededMessage: string | null;
+  openAiConfigModal: (message?: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -153,6 +159,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isFirestoreConnected, setIsFirestoreConnected] = useState(true);
   const [authModalOpen, setAuthModalOpen] = useState(true);
+  const [aiConfigModalOpen, setAiConfigModalOpen] = useState(false);
+  const [quotaExceededMessage, setQuotaExceededMessage] = useState<string | null>(null);
+
+  // Listen for quota exceeded events dispatched by apiService
+  useEffect(() => {
+    const handleQuota = (event: any) => {
+      const msg =
+        event?.detail?.message ||
+        'API key chung của hệ thống đã hết tín dụng. Vui lòng nhập API key cá nhân để tiếp tục sử dụng tính năng có sự hỗ trợ của AI.';
+      setQuotaExceededMessage(msg);
+      setAiConfigModalOpen(true);
+    };
+    window.addEventListener('ai:quota_exceeded', handleQuota);
+    return () => window.removeEventListener('ai:quota_exceeded', handleQuota);
+  }, []);
+
+  const openAiConfigModal = (message?: string) => {
+    setQuotaExceededMessage(message || null);
+    setAiConfigModalOpen(true);
+  };
 
   // Submissions state
   const [submissions, setSubmissions] = useState<SubmissionResult[]>(() => {
@@ -857,6 +883,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         removeBookmarkedMistake,
         toastMessage,
         showToast,
+        aiConfigModalOpen,
+        setAiConfigModalOpen,
+        quotaExceededMessage,
+        openAiConfigModal,
       }}
     >
       {children}

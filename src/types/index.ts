@@ -179,3 +179,29 @@ export interface ClassStudentStat {
   weakestTopic: string;
   latestScore: number;
 }
+
+export interface UserAiConfig {
+  apiKey: string;
+  model: string;
+  usePersonalKey?: boolean;
+  lastTestedAt?: string;
+  lastStatus?: 'success' | 'error' | 'idle';
+  lastLatencyMs?: number;
+}
+
+export interface SystemAiConfig {
+  hasSystemKey: boolean;
+  maskedKey: string;
+  systemModel: string;
+  isQuotaExceeded: boolean;
+  source: 'env' | 'custom' | 'none';
+  lastTestedAt?: string;
+}
+
+export interface ModelOption {
+  id: string;
+  name: string;
+  description: string;
+  isRecommended?: boolean;
+  tag: string;
+}

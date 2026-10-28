@@ -1,4 +1,14 @@
-import { Exam, ItemAnalysis, PersonalizedRoadmap, SimilarPracticeQuestion, StudentProfile, SubmissionResult } from '../types';
+import {
+  Exam,
+  ItemAnalysis,
+  PersonalizedRoadmap,
+  SimilarPracticeQuestion,
+  StudentProfile,
+  SubmissionResult,
+  UserAiConfig,
+  SystemAiConfig,
+  ModelOption,
+} from '../types';
 
 export interface OcrAnswerResponse {
   detectedQuestions: {
@@ -56,28 +66,225 @@ export interface ClassroomOcrAnalysisResult {
   roadmapChangesSummary: string[];
 }
 
+const LOCAL_STORAGE_USER_AI_KEY = 'ai_coach_user_ai_config';
+
+export function getUserAiConfig(): UserAiConfig {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_USER_AI_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('Could not read user AI config from localStorage', e);
+  }
+  return {
+    apiKey: '',
+    model: 'gemini-3.1-flash-lite',
+    usePersonalKey: false,
+  };
+}
+
+export function saveUserAiConfig(config: UserAiConfig): void {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_USER_AI_KEY, JSON.stringify(config));
+    window.dispatchEvent(new CustomEvent('ai:config_updated', { detail: config }));
+  } catch (e) {
+    console.error('Failed to save user AI config', e);
+  }
+}
+
+export function getAiHeaders(): Record<string, string> {
+  const config = getUserAiConfig();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (config.apiKey) {
+    headers['x-gemini-api-key'] = config.apiKey;
+  }
+  if (config.model) {
+    headers['x-gemini-model'] = config.model;
+  }
+  if (config.usePersonalKey) {
+    headers['x-use-personal-key'] = 'true';
+  }
+  return headers;
+}
+
+// Check for Quota Exceeded and notify UI to prompt user for personal key
+async function handleResponseStatus(res: Response): Promise<any> {
+  if (res.status === 429) {
+    const data = await res.json().catch(() => ({}));
+    if (data.requiresUserKey || data.error === 'SYSTEM_QUOTA_EXCEEDED') {
+      window.dispatchEvent(
+        new CustomEvent('ai:quota_exceeded', {
+          detail: {
+            message:
+              data.message ||
+              'API key chung của hệ thống đã hết tín dụng. Vui lòng nhập API key cá nhân để tiếp tục sử dụng tính năng AI.',
+          },
+        })
+      );
+      throw new Error(data.message || 'API key chung của hệ thống đã hết tín dụng. Vui lòng nhập API key cá nhân.');
+    }
+  }
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || errorData.message || `Lỗi yêu cầu (HTTP ${res.status})`);
+  }
+
+  return await res.json();
+}
+
 export const apiService = {
-  // 1. OCR Answer Sheet
+  getUserAiConfig,
+  saveUserAiConfig,
+  getAiHeaders,
+
+  // ==========================================
+  // CONFIGURATION & DIAGNOSTICS (SOLUTIONS 1 & 2)
+  // ==========================================
+
+  // Solution 1: Fetch latest models ("Nút tải lên phiên bản mới nhất")
+  async fetchAvailableModels(): Promise<{ models: ModelOption[]; defaultModel: string }> {
+    try {
+      const res = await fetch('/api/ai/models');
+      if (!res.ok) throw new Error('Không thể tải danh sách phiên bản AI');
+      return await res.json();
+    } catch (error) {
+      console.warn('Fallback available models:', error);
+      return {
+        models: [
+          {
+            id: 'gemini-3.1-flash-lite',
+            name: 'Gemini 3.1 Flash Lite',
+            description: 'Tốc độ phản hồi cực nhanh, tiết kiệm tín dụng tối đa, tối ưu cho bóc tách đề thi và chấm điểm tự động.',
+            isRecommended: true,
+            tag: 'Khuyên dùng (Nhanh & Tiết kiệm)',
+          },
+          {
+            id: 'gemini-3.8-flash',
+            name: 'Gemini 3.8 Flash',
+            description: 'Cân bằng hoàn hảo giữa năng lực phân tích ngữ pháp sư phạm chuyên sâu và tốc độ xử lý.',
+            isRecommended: false,
+            tag: 'Tiêu chuẩn Sư phạm',
+          },
+          {
+            id: 'gemini-4-argon',
+            name: 'Gemini 4 Argon',
+            description: 'Mô hình tư duy cao cấp, giải mã các câu hỏi bẫy khó điểm 9.0+ và bài đọc hiểu phức tạp.',
+            isRecommended: false,
+            tag: 'Tư duy Cao cấp',
+          },
+          {
+            id: 'gemini-flash-latest',
+            name: 'Gemini Flash Latest',
+            description: 'Phiên bản Flash mới nhất luôn được cập nhật tự động từ Google.',
+            isRecommended: false,
+            tag: 'Bản Cập Nhật Mới Nhất',
+          },
+        ],
+        defaultModel: 'gemini-3.1-flash-lite',
+      };
+    }
+  },
+
+  // Solution 1 & 2: Test Connection ("Nút kiểm tra kết nối")
+  async testAiConnection(params: {
+    apiKey?: string;
+    model?: string;
+    testType?: 'user' | 'system';
+  }): Promise<{
+    success: boolean;
+    latencyMs: number;
+    modelUsed: string;
+    message: string;
+    error?: string;
+    isQuotaError?: boolean;
+  }> {
+    try {
+      const res = await fetch('/api/ai/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        return {
+          success: false,
+          latencyMs: data.latencyMs || 0,
+          modelUsed: params.model || 'gemini-3.1-flash-lite',
+          message: data.error || 'Kiểm tra kết nối thất bại.',
+          error: data.error,
+          isQuotaError: data.isQuotaError,
+        };
+      }
+
+      return {
+        success: true,
+        latencyMs: data.latencyMs || 0,
+        modelUsed: data.modelUsed,
+        message: data.message || `Kết nối thành công (${data.latencyMs}ms)`,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        latencyMs: 0,
+        modelUsed: params.model || 'gemini-3.1-flash-lite',
+        message: error.message || 'Lỗi mạng khi kiểm tra kết nối.',
+        error: error.message,
+      };
+    }
+  },
+
+  // Solution 2: Fetch System AI Config (Admin / Global)
+  async fetchSystemAiConfig(): Promise<SystemAiConfig> {
+    const res = await fetch('/api/admin/ai-config');
+    if (!res.ok) throw new Error('Không thể tải cấu hình AI hệ thống');
+    return await res.json();
+  },
+
+  // Solution 2: Save System AI Config (Admin / Global)
+  async saveSystemAiConfig(payload: {
+    apiKey?: string;
+    systemModel?: string;
+    action?: 'set' | 'clear' | 'reset-quota';
+    resetQuota?: boolean;
+  }): Promise<{ success: boolean; message: string; config: SystemAiConfig }> {
+    const res = await fetch('/api/admin/ai-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Lỗi lưu cấu hình AI hệ thống');
+    }
+    return await res.json();
+  },
+
+  // ==========================================
+  // 1. OCR ANSWER SHEET
+  // ==========================================
   async ocrAnswerSheet(imageBase64: string, questionCount: number = 40): Promise<OcrAnswerResponse> {
     try {
       const res = await fetch('/api/ai/ocr-answer-sheet', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({ imageBase64, questionCount }),
       });
 
-      if (!res.ok) {
-        throw new Error(`OCR request failed with status: ${res.status}`);
+      return await handleResponseStatus(res);
+    } catch (error: any) {
+      if (error?.message?.includes('hết tín dụng') || error?.message?.includes('SYSTEM_QUOTA_EXCEEDED')) {
+        throw error;
       }
-      return await res.json();
-    } catch (error) {
       console.warn('Fallback OCR simulation due to network or server error:', error);
-      // Smart simulated OCR extraction based on common student answers
       const mockDetected: OcrAnswerResponse = {
         detectedQuestions: Array.from({ length: questionCount }, (_, i) => {
           const num = i + 1;
           const options = ['A', 'B', 'C', 'D'];
-          // Sample simulation for typical test
           let ans = options[(num * 3) % 4];
           if (num === 1) ans = 'C';
           if (num === 2) ans = 'A';
@@ -103,7 +310,9 @@ export const apiService = {
     }
   },
 
-  // 2. Parse Exam Document / Image / Text / PDF
+  // ==========================================
+  // 2. PARSE EXAM DOCUMENT / IMAGE / TEXT / PDF
+  // ==========================================
   async parseExam(
     rawText?: string,
     fileBase64?: string,
@@ -112,22 +321,20 @@ export const apiService = {
     try {
       const res = await fetch('/api/ai/parse-exam', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({ rawText, fileBase64, mimeType }),
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Lỗi bóc tách đề thi (mã HTTP: ${res.status})`);
-      }
-      return await res.json();
+      return await handleResponseStatus(res);
     } catch (error: any) {
       console.error('Lỗi khi bóc tách đề thi:', error);
       throw error;
     }
   },
 
-  // 3. Analyze Student Mistakes & Score
+  // ==========================================
+  // 3. ANALYZE STUDENT MISTAKES & SCORE
+  // ==========================================
   async analyzeMistakes(
     studentAnswers: Record<number, string>,
     examDetails: Exam,
@@ -136,12 +343,11 @@ export const apiService = {
     try {
       const res = await fetch('/api/ai/analyze-mistakes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({ studentAnswers, examDetails, studentProfile }),
       });
 
-      if (!res.ok) throw new Error('Mistake analysis failed');
-      const data = await res.json();
+      const data = await handleResponseStatus(res);
 
       return {
         id: 'sub-' + Date.now(),
@@ -185,7 +391,10 @@ export const apiService = {
         ],
         itemAnalysis: data.itemAnalysis || [],
       };
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message?.includes('hết tín dụng') || error?.message?.includes('SYSTEM_QUOTA_EXCEEDED')) {
+        throw error;
+      }
       console.warn('Using local intelligent scoring fallback:', error);
 
       // Local grading fallback
@@ -199,7 +408,9 @@ export const apiService = {
         const isMatch =
           studentAns.toUpperCase() === correctAns.toUpperCase() ||
           (q.type === 'word_form' && studentAns.toLowerCase() === correctAns.toLowerCase()) ||
-          (q.type === 'rewrite' && studentAns.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '') === correctAns.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, ''));
+          (q.type === 'rewrite' &&
+            studentAns.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '') ===
+              correctAns.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, ''));
 
         if (isMatch) {
           correct++;
@@ -268,7 +479,9 @@ export const apiService = {
     }
   },
 
-  // 4. Generate Dynamic Personalized Roadmap
+  // ==========================================
+  // 4. GENERATE DYNAMIC PERSONALIZED ROADMAP
+  // ==========================================
   async generatePersonalizedRoadmap(payload: {
     targetSchool: string;
     targetScore: number;
@@ -280,12 +493,11 @@ export const apiService = {
     try {
       const res = await fetch('/api/ai/generate-roadmap', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error('Roadmap generation failed');
-      const data = await res.json();
+      const data = await handleResponseStatus(res);
       return {
         id: 'roadmap-' + Date.now(),
         studentId: 'current-student',
@@ -298,13 +510,15 @@ export const apiService = {
         phases: data.phases || [],
         coachTips: data.coachTips || [],
       };
-    } catch (error) {
-      console.warn('Fallback roadmap generation:', error);
+    } catch (error: any) {
+      console.warn('Fallback roadmap generation error:', error);
       throw error;
     }
   },
 
-  // 4.1. Analyze Classroom OCR Test Paper & Adjust Roadmap
+  // ==========================================
+  // 4.1. ANALYZE CLASSROOM OCR & ADJUST ROADMAP
+  // ==========================================
   async analyzeClassroomOcr(payload: {
     fileBase64?: string;
     mimeType?: string;
@@ -318,20 +532,20 @@ export const apiService = {
     try {
       const res = await fetch('/api/ai/analyze-classroom-ocr', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error('Classroom OCR analysis failed');
-      const data = await res.json();
-      return data;
-    } catch (error) {
-      console.warn('Fallback classroom OCR analysis:', error);
+      return await handleResponseStatus(res);
+    } catch (error: any) {
+      console.warn('Fallback classroom OCR analysis error:', error);
       throw error;
     }
   },
 
-  // 5. Generate Similar Practice Questions
+  // ==========================================
+  // 5. GENERATE SIMILAR PRACTICE QUESTIONS
+  // ==========================================
   async generateSimilarQuestions(
     originalQuestion: { questionText: string; correctAnswer: string; type?: string },
     grammarTopic: string,
@@ -340,13 +554,12 @@ export const apiService = {
     try {
       const res = await fetch('/api/ai/generate-similar-questions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({ originalQuestion, grammarTopic, count }),
       });
 
-      if (!res.ok) throw new Error('Similar questions generation failed');
-      return await res.json();
-    } catch (error) {
+      return await handleResponseStatus(res);
+    } catch (error: any) {
       console.warn('Using local fallback similar questions:', error);
       return {
         topic: grammarTopic,
@@ -375,19 +588,20 @@ export const apiService = {
     }
   },
 
-  // 6. Generate Class Diagnostic Report for Teachers
+  // ==========================================
+  // 6. GENERATE CLASS REPORT FOR TEACHERS
+  // ==========================================
   async generateClassReport(classData: any, examData: any): Promise<ClassReportResponse> {
     try {
       const res = await fetch('/api/ai/generate-class-report', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAiHeaders(),
         body: JSON.stringify({ classData, examData }),
       });
 
-      if (!res.ok) throw new Error('Class report generation failed');
-      return await res.json();
-    } catch (error) {
-      console.warn('Fallback class report:', error);
+      return await handleResponseStatus(res);
+    } catch (error: any) {
+      console.warn('Fallback class report error:', error);
       return {
         classAverageScore: 7.2,
         passRate: 92.5,

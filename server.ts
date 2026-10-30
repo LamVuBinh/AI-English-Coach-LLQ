@@ -226,6 +226,7 @@ Hãy trả về định dạng JSON đúng schema đã cung cấp.
     const response = await callGeminiWithRetry(
       {
         model: 'gemini-3.8-flash',
+        forceModel: 'gemini-3.8-flash',
         contents: {
           parts: [
             ...imageParts,
@@ -243,11 +244,26 @@ Hãy trả về định dạng JSON đúng schema đã cung cấp.
                   type: Type.OBJECT,
                   properties: {
                     questionNumber: { type: Type.INTEGER },
-                    studentAnswer: { type: Type.STRING },
+                    hasTeacherRedGrading: {
+                      type: Type.BOOLEAN,
+                      description: 'True nếu có mực đỏ của giáo viên (gạch chéo đỏ, tích V đỏ, khoanh đỏ, hoặc chữ đỏ sửa bên cạnh)',
+                    },
+                    teacherRedCorrectionText: {
+                      type: Type.STRING,
+                      description: 'Nội dung chữ hoặc phương án MỰC ĐỎ do giáo viên sửa (để rỗng "" nếu không có)',
+                    },
+                    studentRawHandwriting: {
+                      type: Type.STRING,
+                      description: 'BÀI LÀM DO HỌC SINH TỰ VIẾT BẰNG MỰC XANH, ĐEN HOẶC CHÌ (kể cả khi viết sai chính tả, sai ngữ pháp, hoặc bị gạch mực đỏ)',
+                    },
+                    studentAnswer: {
+                      type: Type.STRING,
+                      description: 'BẮT BUỘC LẤY NGUYÊN VĂN TỪ studentRawHandwriting. TUYỆT ĐỐI CẤM LẤY teacherRedCorrectionText',
+                    },
                     confidence: { type: Type.STRING, description: 'HIGH, MEDIUM, LOW' },
                     notes: { type: Type.STRING, description: 'Ghi chú chữ mờ hoặc gạch xóa nếu có' },
                   },
-                  required: ['questionNumber', 'studentAnswer'],
+                  required: ['questionNumber', 'hasTeacherRedGrading', 'teacherRedCorrectionText', 'studentRawHandwriting', 'studentAnswer'],
                 },
               },
               generalNotes: { type: Type.STRING, description: 'Nhận xét tổng quan về chất lượng chữ viết / file PDF / ảnh chụp' },
@@ -261,6 +277,32 @@ Hãy trả về định dạng JSON đúng schema đã cung cấp.
 
     const jsonStr = response.text?.trim() || '{}';
     const parsed = JSON.parse(jsonStr);
+
+    if (Array.isArray(parsed.detectedQuestions)) {
+      parsed.detectedQuestions = parsed.detectedQuestions.map((q: any) => {
+        let finalAns = String(q.studentAnswer || '').trim();
+        const origHandwriting = String(q.studentRawHandwriting || '').trim();
+        const teacherRed = String(q.teacherRedCorrectionText || '').trim();
+
+        // Anti-teacher-leak programmatic safeguard:
+        if (teacherRed) {
+          // If studentAnswer was set to the teacher's red correction text, or if studentRawHandwriting is available and distinct
+          if (origHandwriting && origHandwriting.toLowerCase() !== teacherRed.toLowerCase()) {
+            finalAns = origHandwriting;
+          } else if (finalAns.toLowerCase() === teacherRed.toLowerCase() && origHandwriting) {
+            finalAns = origHandwriting;
+          }
+        } else if (origHandwriting && !finalAns) {
+          finalAns = origHandwriting;
+        }
+
+        return {
+          ...q,
+          studentAnswer: finalAns,
+        };
+      });
+    }
+
     res.json(parsed);
   } catch (error: any) {
     handleGeminiError(res, error);
@@ -283,23 +325,26 @@ async function callGeminiWithRetry(options: any, credentials?: AiCredentials, ma
   let fallbackKey = '';
   let fallbackModel = '';
 
+  // If forceModel is specified (e.g. specialized vision gemini-3.8-flash), enforce it
+  const forcedOrRequestedModel = options.forceModel || null;
+
   if (usePersonalKey && userKey) {
     primaryKey = userKey;
-    primaryModel = userModel || options.model || 'gemini-3.1-flash-lite';
+    primaryModel = forcedOrRequestedModel || userModel || options.model || 'gemini-3.8-flash';
     fallbackKey = !isSystemQuotaExhausted ? systemKey : '';
-    fallbackModel = systemDefaultModel;
+    fallbackModel = forcedOrRequestedModel || systemDefaultModel;
   } else {
     // Priority: System Key first, unless exhausted
     if (systemKey && !isSystemQuotaExhausted) {
       primaryKey = systemKey;
-      primaryModel = options.model || systemDefaultModel || 'gemini-3.1-flash-lite';
+      primaryModel = forcedOrRequestedModel || options.model || systemDefaultModel || 'gemini-3.8-flash';
       fallbackKey = userKey;
-      fallbackModel = userModel || primaryModel;
+      fallbackModel = forcedOrRequestedModel || userModel || primaryModel;
     } else {
       // System key is either missing or exhausted
       if (userKey) {
         primaryKey = userKey;
-        primaryModel = userModel || options.model || 'gemini-3.1-flash-lite';
+        primaryModel = forcedOrRequestedModel || userModel || options.model || 'gemini-3.8-flash';
       } else {
         const quotaErr: any = new Error(
           isSystemQuotaExhausted
@@ -1290,6 +1335,7 @@ Trả về định dạng JSON chuẩn.
       const response = await callGeminiWithRetry(
         {
           model: 'gemini-3.8-flash',
+          forceModel: 'gemini-3.8-flash',
           contents: { parts },
           config: {
           responseMimeType: 'application/json',
@@ -1323,7 +1369,22 @@ Trả về định dạng JSON chuẩn.
                   properties: {
                     questionNumber: { type: Type.INTEGER },
                     isCorrect: { type: Type.BOOLEAN },
-                    studentAnswer: { type: Type.STRING },
+                    hasTeacherRedGrading: {
+                      type: Type.BOOLEAN,
+                      description: 'True nếu thấy giáo viên có chấm mực đỏ, gạch chéo đỏ, tích V đỏ hoặc ghi chữ sửa bằng mực đỏ ở câu này',
+                    },
+                    teacherRedCorrection: {
+                      type: Type.STRING,
+                      description: 'Chữ viết hoặc đáp án bằng MỰC ĐỎ của giáo viên sửa (để rỗng "" nếu không có)',
+                    },
+                    studentRawHandwriting: {
+                      type: Type.STRING,
+                      description: 'CHỮ HỌC SINH TỰ VIẾT BẰNG MỰC XANH/ĐEN/CHÌ (kể cả khi viết sai hoặc bị giáo viên gạch mực đỏ)',
+                    },
+                    studentAnswer: {
+                      type: Type.STRING,
+                      description: 'BẮT BUỘC LẤY TỪ studentRawHandwriting. TUYỆT ĐỐI CẤM LẤY teacherRedCorrection',
+                    },
                     correctAnswer: { type: Type.STRING },
                     grammarTopic: { type: Type.STRING },
                     cognitiveLevel: { type: Type.STRING },
@@ -1333,7 +1394,7 @@ Trả về định dạng JSON chuẩn.
                     formulaAndRule: { type: Type.STRING },
                     trapTip: { type: Type.STRING },
                   },
-                  required: ['questionNumber', 'isCorrect', 'studentAnswer', 'correctAnswer', 'grammarTopic'],
+                  required: ['questionNumber', 'isCorrect', 'teacherRedCorrection', 'studentRawHandwriting', 'studentAnswer', 'correctAnswer', 'grammarTopic'],
                 },
               },
               roadmapChangesSummary: {
@@ -1402,6 +1463,30 @@ Trả về định dạng JSON chuẩn.
 
       const jsonStr = response.text?.trim() || '{}';
       parsedResult = JSON.parse(jsonStr);
+
+      if (parsedResult && Array.isArray(parsedResult.itemAnalysis)) {
+        parsedResult.itemAnalysis = parsedResult.itemAnalysis.map((item: any) => {
+          let sAns = String(item.studentAnswer || '').trim();
+          const rawHandwriting = String(item.studentRawHandwriting || '').trim();
+          const tRed = String(item.teacherRedCorrection || '').trim();
+
+          // Anti-teacher-correction guard:
+          if (tRed) {
+            if (rawHandwriting && rawHandwriting.toLowerCase() !== tRed.toLowerCase()) {
+              sAns = rawHandwriting;
+            } else if (sAns.toLowerCase() === tRed.toLowerCase() && rawHandwriting) {
+              sAns = rawHandwriting;
+            }
+          } else if (rawHandwriting && !sAns) {
+            sAns = rawHandwriting;
+          }
+
+          return {
+            ...item,
+            studentAnswer: sAns,
+          };
+        });
+      }
     } catch (aiErr: any) {
       console.warn('Gemini error in analyze-classroom-ocr:', aiErr?.message || aiErr);
     }
@@ -1742,8 +1827,21 @@ Yêu cầu lộ trình:
    - Nhiệm vụ học tập hàng ngày (Micro-tasks 20-30 phút)
    - Dạng bài thi vào 10 TP.HCM tương ứng (Word form, Rewrite, Signboards, Cloze text)
    - Bài test kiểm tra tiến độ cuối tuần (Progress Checkpoint)
-3. Điểm số dự kiến tăng dần qua từng giai đoạn.
-4. Lời khuyên động viên và chiến thuật phân bổ thời gian.
+3. ĐẶC BIỆT ĐỐI VỚI CHUYÊN ĐỀ DẠNG THỨC TỪ (WORD FORMATION - CÂU 31 ĐẾN 36 ĐỀ THI TP.HCM):
+   BẮT BUỘC xây dựng kế hoạch học tập bám sát tài liệu chuẩn "CÁCH LÀM BÀI TẬP WORD FORM: TRẠNG ĐỘNG TRẠNG TÍNH DANH":
+   - Áp dụng triệt để quy tắc vị trí 4 từ loại:
+     + Danh từ (n): Đứng sau Tính từ; sau a/an/the; sau this/that/these/those; sau tính từ sở hữu; sau giới từ; sau từ chỉ số lượng; sau các động từ need, bring, have, give, find, take...
+     + Tính từ (adj): Đứng trước Danh từ; sau to be; sau Linking verbs (look, feel, seem, become, taste, smell, get...).
+     + Trạng từ (adv): Đứng sau Động từ thường; đứng đầu câu có dấu phẩy.
+     + Động từ (v): Đứng sau Chủ ngữ; sau Modal verbs; spend/waste + time + V-ing; have + S.O + Vo; get + S.O + To-V; have/get + S.thing + V(3/ed).
+   - Bảng nhận diện hậu tố (Suffixes):
+     + Danh từ (n): -tion, -sion, -ment, -ce, -ness, -y/-ty, -er/-or/-ee/-ist.
+     + Động từ (v): -ize, -ate, -en, -fy.
+     + Tính từ (adj): -al, -ful, -ive, -able/-ible, -ous, -ic, -ant, -ing/-ed.
+     + Trạng từ (adv): -ly.
+   - Các bài tập và nhiệm vụ hàng ngày về Word Form phải chia theo các bước: Phân tích vị trí để xác định từ loại -> Tra hậu tố -> Xem xét tiền tố phủ định un-, im-, in-, dis-.
+4. Điểm số dự kiến tăng dần qua từng giai đoạn.
+5. Lời khuyên động viên và chiến thuật phân bổ thời gian.
 
 Hãy trả về định dạng JSON chuẩn.
 `;

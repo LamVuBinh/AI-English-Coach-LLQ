@@ -17,6 +17,10 @@ import {
   Play,
   FileCheck,
   Layers,
+  X,
+  Download,
+  ExternalLink,
+  FileText,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { SAMPLE_EXAMS } from '../data/sampleExams';
@@ -38,6 +42,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
     bookmarkedMistakes,
     diagnosticExamId,
   } = useApp();
+
+  const [showWordFormHandbook, setShowWordFormHandbook] = React.useState(false);
 
   const handleStartExam = (exam: any) => {
     setCurrentExam(exam);
@@ -290,9 +296,18 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
             </p>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-xl">
-            <Clock className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Mỗi ngày: <strong>{roadmap.dailyCommitmentMinutes} phút</strong></span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowWordFormHandbook(true)}
+              className="flex items-center gap-1.5 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-3 py-1.5 rounded-xl transition-all cursor-pointer shadow-xs"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+              Bí kíp Word Form: Trạng Động Trạng Tính Danh
+            </button>
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-xl">
+              <Clock className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Mỗi ngày: <strong>{roadmap.dailyCommitmentMinutes} phút</strong></span>
+            </div>
           </div>
         </div>
 
@@ -367,6 +382,31 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
                           <p className="text-xs text-slate-600 font-medium leading-relaxed">
                             <strong className="text-slate-800">Trọng tâm:</strong> {week.grammarCore}
                           </p>
+
+                          {(week.weekTheme.toLowerCase().includes('word form') ||
+                            week.weekTheme.toLowerCase().includes('dạng thức từ')) && (
+                            <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-amber-200/70 text-amber-900 flex items-center justify-center shrink-0">
+                                  <Sparkles className="w-4 h-4 text-amber-700" />
+                                </div>
+                                <div>
+                                  <h5 className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                                    Phương pháp chuẩn: &quot;TRẠNG ĐỘNG TRẠNG TÍNH DANH&quot;
+                                  </h5>
+                                  <p className="text-[11px] text-amber-800 leading-tight">
+                                    Quy tắc nhận diện 4 vị trí từ loại &amp; bảng hậu tố chuyên sâu cho kỳ thi vào 10 TP.HCM
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setShowWordFormHandbook(true)}
+                                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1 transition-colors shrink-0"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" /> Mở Cẩm Nang &amp; Bí Kíp
+                              </button>
+                            </div>
+                          )}
 
                           <div className="bg-white/80 rounded-xl p-3 border border-slate-200/60 text-xs text-slate-600 space-y-1.5">
                             <p className="text-[11px] font-bold text-indigo-900 uppercase tracking-wider">
@@ -548,6 +588,273 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
           </div>
         )}
       </div>
+
+      {/* WORD FORM HANDBOOK MODAL: TRẠNG ĐỘNG TRẠNG TÍNH DANH */}
+      {showWordFormHandbook && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-auto">
+            {/* Modal Header */}
+            <div className="bg-linear-to-r from-amber-600 via-orange-600 to-indigo-700 p-5 sm:p-6 text-white flex items-start justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/20 backdrop-blur-md text-[11px] font-bold text-amber-100 uppercase tracking-wider mb-2">
+                  <Sparkles className="w-3 h-3 text-amber-300" /> Phương Pháp Chuẩn Kỳ Thi Tuyển Sinh Vào 10 TP.HCM
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black">
+                  CÁCH LÀM BÀI TẬP WORD FORM: TRẠNG ĐỘNG TRẠNG TÍNH DANH
+                </h3>
+                <p className="text-xs sm:text-sm text-amber-100/90 mt-1 max-w-2xl leading-relaxed">
+                  Bí quyết phân tích vị trí 4 từ loại và bảng nhận diện hậu tố chuẩn xác (Câu 31 đến 36 - Đề 3584 Sở GD&amp;ĐT TP.HCM)
+                </p>
+              </div>
+              <button
+                onClick={() => setShowWordFormHandbook(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer transition-colors shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 overflow-y-auto space-y-6 text-slate-800 text-xs sm:text-sm">
+              {/* Core Formula Banner */}
+              <div className="bg-linear-to-r from-amber-50 via-orange-50 to-indigo-50 border-2 border-amber-300/80 rounded-2xl p-4 text-center shadow-xs">
+                <span className="text-[11px] font-black uppercase tracking-wider text-amber-800 block mb-1">
+                  Khẩu Quyết Thần Chú Bất Bại
+                </span>
+                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 py-2 text-base sm:text-xl font-black">
+                  <span className="px-3 py-1 bg-amber-500 text-white rounded-xl shadow-xs">TRẠNG (Adv)</span>
+                  <span className="text-slate-400">➔</span>
+                  <span className="px-3 py-1 bg-emerald-600 text-white rounded-xl shadow-xs">ĐỘNG (V)</span>
+                  <span className="text-slate-400">➔</span>
+                  <span className="px-3 py-1 bg-amber-500 text-white rounded-xl shadow-xs">TRẠNG (Adv)</span>
+                  <span className="text-slate-400">➔</span>
+                  <span className="px-3 py-1 bg-violet-600 text-white rounded-xl shadow-xs">TÍNH (Adj)</span>
+                  <span className="text-slate-400">➔</span>
+                  <span className="px-3 py-1 bg-blue-600 text-white rounded-xl shadow-xs">DANH (N)</span>
+                </div>
+                <p className="text-xs text-slate-600 italic mt-1 font-medium">
+                  &quot;Trạng Động Trạng Tính Danh: Xác định vị trí từ cần điền theo trật tự cú pháp trước khi biến đổi từ gốc&quot;
+                </p>
+              </div>
+
+              {/* 4 Word Form Positions Breakdown (2x2 Grid) */}
+              <div>
+                <h4 className="font-extrabold text-sm sm:text-base text-slate-900 mb-3 flex items-center gap-2">
+                  <span className="w-2 h-5 bg-indigo-600 rounded-full inline-block"></span>
+                  I. VỊ TRÍ 4 TỪ LOẠI TRONG CÂU
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* 1. Noun */}
+                  <div className="bg-blue-50/60 border border-blue-200 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-blue-900 text-sm flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center text-xs">1</span>
+                        DANH TỪ (Noun - n)
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">7 Vị Trí</span>
+                    </div>
+                    <ul className="space-y-1.5 text-xs text-blue-950 font-medium pl-1">
+                      <li>• <strong>Đứng sau Tính từ:</strong> Adj + <u>Noun</u> (a beautiful <u>city</u>)</li>
+                      <li>• <strong>Đứng sau mạo từ:</strong> a / an / the + <u>Noun</u></li>
+                      <li>• <strong>Đứng sau từ chỉ định:</strong> this / that / these / those + <u>Noun</u></li>
+                      <li>• <strong>Đứng sau Tính từ sở hữu:</strong> my / your / his / her / our / their + <u>Noun</u></li>
+                      <li>• <strong>Đứng sau Giới từ:</strong> in / on / for / with / of / at / about + <u>Noun</u></li>
+                      <li>• <strong>Đứng sau Từ chỉ số lượng:</strong> 1, 2, 3... some, any, many, much, a lot of, few, little + <u>Noun</u></li>
+                      <li>• <strong>Đứng sau 1 số Động từ thường:</strong> need, bring, have, give, find, take... + <u>Noun</u></li>
+                    </ul>
+                  </div>
+
+                  {/* 2. Adjective */}
+                  <div className="bg-violet-50/60 border border-violet-200 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-violet-900 text-sm flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-md bg-violet-600 text-white flex items-center justify-center text-xs">2</span>
+                        TÍNH TỪ (Adjective - adj)
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">3 Vị Trí</span>
+                    </div>
+                    <ul className="space-y-1.5 text-xs text-violet-950 font-medium pl-1">
+                      <li>• <strong>Đứng trước Danh từ:</strong> <u>Adj</u> + Noun (an <u>impressive</u> result)</li>
+                      <li>• <strong>Đứng sau động từ &quot;to be&quot;:</strong> S + be (am/is/are/was/were) + <u>Adj</u></li>
+                      <li>• <strong>Đứng sau Linking verbs (Động từ tri giác/nối):</strong></li>
+                      <li className="pl-3 text-[11px] text-violet-800 italic">
+                        look, feel, seem, become, taste, smell, get, appear, sound... + <u>Adj</u>
+                      </li>
+                      <li className="pt-1 text-[11px] text-violet-700 bg-violet-100/60 p-2 rounded-lg">
+                        ⚠️ <em>Lưu ý bẫy TP.HCM:</em> Sau linking verbs là Tính từ, KHÔNG dùng Trạng từ (-ly)!
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* 3. Adverb */}
+                  <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-amber-950 text-sm flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-md bg-amber-500 text-white flex items-center justify-center text-xs">3</span>
+                        TRẠNG TỪ (Adverb - adv)
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">2 Vị Trí</span>
+                    </div>
+                    <ul className="space-y-1.5 text-xs text-amber-950 font-medium pl-1">
+                      <li>• <strong>Đứng sau Động từ thường:</strong> S + V-thường + (O) + <u>Adv</u> (drive <u>carefully</u>)</li>
+                      <li>• <strong>Đứng đầu câu, có dấu phẩy:</strong> <u>Adv</u>, S + V + O</li>
+                      <li className="pl-3 text-[11px] text-amber-800 italic">
+                        Ví dụ: <u>Fortunately</u>, everyone passed the exam safely.
+                      </li>
+                      <li className="pt-1 text-[11px] text-amber-800 bg-amber-100/70 p-2 rounded-lg">
+                        💡 Công thức: <strong>Tính từ + -ly = Trạng từ</strong> (quick ➔ quickly, extreme ➔ extremely).
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* 4. Verb */}
+                  <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-emerald-950 text-sm flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-md bg-emerald-600 text-white flex items-center justify-center text-xs">4</span>
+                        ĐỘNG TỪ (Verb - v)
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900">4 Cấu Trúc</span>
+                    </div>
+                    <ul className="space-y-1.5 text-xs text-emerald-950 font-medium pl-1">
+                      <li>• <strong>Đứng sau Chủ ngữ:</strong> S + <u>V</u> (chia theo thì và ngôi)</li>
+                      <li>• <strong>Đứng sau Modal verbs:</strong> can, could, will, would, may, should, must... + <u>Vo</u></li>
+                      <li>• <strong>Cấu trúc tiêu tốn:</strong> spend / waste + time + <u>V-ing</u></li>
+                      <li>• <strong>Cấu trúc nhờ vả / truyền khiến:</strong></li>
+                      <li className="pl-3 text-[11px] text-emerald-800">
+                        - Chủ động: have + S.O + <u>Vo</u> ; get + S.O + <u>To-V</u>
+                      </li>
+                      <li className="pl-3 text-[11px] text-emerald-800">
+                        - Bị động: have / get + S.thing + <u>V(3/ed)</u>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* II. Suffix Recognition Table */}
+              <div>
+                <h4 className="font-extrabold text-sm sm:text-base text-slate-900 mb-3 flex items-center gap-2">
+                  <span className="w-2 h-5 bg-indigo-600 rounded-full inline-block"></span>
+                  II. BẢNG NHẬN DIỆN HẬU TỐ (SUFFIXES - PHÂN BIỆT 4 TỪ LOẠI)
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Noun Suffixes */}
+                  <div className="bg-slate-50 border border-blue-200 rounded-2xl p-3.5 space-y-2">
+                    <div className="font-bold text-xs text-blue-800 uppercase tracking-wider pb-1 border-b border-blue-200 flex items-center justify-between">
+                      <span>Hậu tố Danh từ (n)</span>
+                      <span className="bg-blue-100 text-blue-900 text-[10px] px-1.5 py-0.2 rounded font-black">7 đuôi</span>
+                    </div>
+                    <ul className="space-y-1 text-xs text-slate-700">
+                      <li><strong className="text-blue-700 font-mono">-tion:</strong> pollution, action</li>
+                      <li><strong className="text-blue-700 font-mono">-sion:</strong> decision, conclusion</li>
+                      <li><strong className="text-blue-700 font-mono">-ment:</strong> development, agreement</li>
+                      <li><strong className="text-blue-700 font-mono">-ce:</strong> difference, importance</li>
+                      <li><strong className="text-blue-700 font-mono">-ness:</strong> happiness, kindness</li>
+                      <li><strong className="text-blue-700 font-mono">-y / -ty:</strong> society, safety, activity</li>
+                      <li><strong className="text-blue-700 font-mono">-er / -or:</strong> teacher, actor (chỉ người)</li>
+                      <li><strong className="text-blue-700 font-mono">-ee / -ist:</strong> employee, scientist</li>
+                    </ul>
+                  </div>
+
+                  {/* Verb Suffixes */}
+                  <div className="bg-slate-50 border border-emerald-200 rounded-2xl p-3.5 space-y-2">
+                    <div className="font-bold text-xs text-emerald-800 uppercase tracking-wider pb-1 border-b border-emerald-200 flex items-center justify-between">
+                      <span>Hậu tố Động từ (v)</span>
+                      <span className="bg-emerald-100 text-emerald-900 text-[10px] px-1.5 py-0.2 rounded font-black">4 đuôi</span>
+                    </div>
+                    <ul className="space-y-1 text-xs text-slate-700">
+                      <li><strong className="text-emerald-700 font-mono">-ize (-ise):</strong> modernize, organize</li>
+                      <li><strong className="text-emerald-700 font-mono">-ate:</strong> educate, communicate</li>
+                      <li><strong className="text-emerald-700 font-mono">-en:</strong> widen, strengthen</li>
+                      <li><strong className="text-emerald-700 font-mono">-fy:</strong> beautify, simplify</li>
+                    </ul>
+                  </div>
+
+                  {/* Adjective Suffixes */}
+                  <div className="bg-slate-50 border border-violet-200 rounded-2xl p-3.5 space-y-2">
+                    <div className="font-bold text-xs text-violet-800 uppercase tracking-wider pb-1 border-b border-violet-200 flex items-center justify-between">
+                      <span>Hậu tố Tính từ (adj)</span>
+                      <span className="bg-violet-100 text-violet-900 text-[10px] px-1.5 py-0.2 rounded font-black">8 đuôi</span>
+                    </div>
+                    <ul className="space-y-1 text-xs text-slate-700">
+                      <li><strong className="text-violet-700 font-mono">-al:</strong> natural, cultural</li>
+                      <li><strong className="text-violet-700 font-mono">-ful:</strong> beautiful, peaceful</li>
+                      <li><strong className="text-violet-700 font-mono">-ive:</strong> active, creative</li>
+                      <li><strong className="text-violet-700 font-mono">-able / -ible:</strong> renewable, sensible</li>
+                      <li><strong className="text-violet-700 font-mono">-ous:</strong> dangerous, famous</li>
+                      <li><strong className="text-violet-700 font-mono">-ic:</strong> scientific, economic</li>
+                      <li><strong className="text-violet-700 font-mono">-ant:</strong> important, pleasant</li>
+                      <li><strong className="text-violet-700 font-mono">-ing / -ed:</strong> interesting / interested</li>
+                    </ul>
+                  </div>
+
+                  {/* Adverb Suffixes */}
+                  <div className="bg-slate-50 border border-amber-200 rounded-2xl p-3.5 space-y-2">
+                    <div className="font-bold text-xs text-amber-800 uppercase tracking-wider pb-1 border-b border-amber-200 flex items-center justify-between">
+                      <span>Hậu tố Trạng từ (adv)</span>
+                      <span className="bg-amber-100 text-amber-900 text-[10px] px-1.5 py-0.2 rounded font-black">Quy tắc -ly</span>
+                    </div>
+                    <ul className="space-y-1.5 text-xs text-slate-700">
+                      <li><strong className="text-amber-700 font-mono">Adj + -ly = Adv:</strong></li>
+                      <li className="pl-1">• beautiful ➔ beautifully</li>
+                      <li className="pl-1">• extreme ➔ extremely</li>
+                      <li className="pl-1">• careful ➔ carefully</li>
+                      <li className="pl-1 text-rose-700 font-medium">⚠️ <em>Ngoại lệ bẫy:</em></li>
+                      <li className="pl-1 text-slate-600">• good ➔ well</li>
+                      <li className="pl-1 text-slate-600">• fast / hard / late (vừa là Adj vừa là Adv)</li>
+                      <li className="pl-1 text-slate-600">• friendly / lovely (là Adj, không phải Adv)</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2-Step Exam Strategy */}
+              <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 space-y-2">
+                <h5 className="font-bold text-xs uppercase tracking-wider text-indigo-900 flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-indigo-600" /> QUY TRÌNH 2 BƯỚC ĂN TRỌN 1.5 ĐIỂM WORD FORM (CÂU 31-36)
+                </h5>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-indigo-950">
+                  <div className="bg-white p-3 rounded-xl border border-indigo-100 space-y-1">
+                    <span className="font-extrabold text-indigo-700 block">Bước 1: Nhìn trước - Nhìn sau chỗ trống</span>
+                    <p className="text-slate-600">
+                      Áp dụng thần chú <strong>&quot;Trạng Động Trạng Tính Danh&quot;</strong> để xác định ngay từ cần điền là Noun, Verb, Adj hay Adv.
+                    </p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-indigo-100 space-y-1">
+                    <span className="font-extrabold text-indigo-700 block">Bước 2: Ghép hậu tố &amp; Xét tiền tố phủ định</span>
+                    <p className="text-slate-600">
+                      Tra bảng hậu tố tương ứng. Đọc kỹ nghĩa của câu xem có mang sắc thái đối lập / phủ định để thêm <em>un-, in-, im-, dis-</em> hay không.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 border-t border-slate-200 p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3">
+              <a
+                href="/assets/aistudio/C_CH_L_M_WORD_FORM_537ba9b3.pdf"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer"
+              >
+                <Download className="w-4 h-4" /> Tải về / Mở file PDF gốc đính kèm
+                <ExternalLink className="w-3.5 h-3.5 ml-0.5 opacity-60" />
+              </a>
+
+              <button
+                onClick={() => setShowWordFormHandbook(false)}
+                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-xs cursor-pointer ml-auto"
+              >
+                Đã Hiểu, Quay Lại Lộ Trình
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

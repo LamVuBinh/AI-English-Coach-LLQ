@@ -296,43 +296,8 @@ export const apiService = {
 
       return await handleResponseStatus(res);
     } catch (error: any) {
-      if (error?.message?.includes('hết tín dụng') || error?.message?.includes('SYSTEM_QUOTA_EXCEEDED')) {
-        throw error;
-      }
-      console.warn('Fallback OCR simulation due to network or server error:', error);
-      const mockDetected: OcrAnswerResponse = {
-        detectedQuestions: Array.from({ length: questionCount }, (_, i) => {
-          const num = i + 1;
-          const options = ['A', 'B', 'C', 'D'];
-          let ans = options[(num * 3) % 4];
-          if (num === 1) ans = 'C';
-          if (num === 2) ans = 'A';
-          if (num === 3) ans = 'D';
-          if (num === 4) ans = 'B';
-          if (num === 7) ans = 'A';
-          if (num === 8) ans = 'B';
-          if (num === 9) ans = 'B';
-          if (num === 10) ans = 'A';
-          if (num === 31) ans = 'renewable';
-          if (num === 32) ans = 'seriously';
-          if (num === 33) ans = 'expectancy';
-          if (num === 34) ans = 'inconvenient';
-          if (num === 35) ans = 'hospitality';
-          if (num === 36) ans = 'dramatically';
-          if (num === 37) ans = 'Ba suggested organizing a campus cleanup campaign this Sunday.';
-          if (num === 38) ans = 'The young female scientist whom you met yesterday delivered an inspiring speech at the seminar.';
-          if (num === 39) ans = 'If he had a bike or scooter, he could travel to school much faster.';
-          if (num === 40) ans = 'Although the project was practical, nobody wanted to carry it out.';
-          return {
-            questionNumber: num,
-            studentAnswer: ans,
-            confidence: 'HIGH',
-            notes: num >= 37 ? 'Nhận diện hoàn chỉnh câu viết lại (Rewrite)' : 'Nhận diện tự động từ AI Vision',
-          };
-        }),
-        generalNotes: 'Bản quét rõ nét, AI đã trích xuất thành công toàn bộ câu viết lại (Rewrite) và các đáp án trắc nghiệm.',
-      };
-      return mockDetected;
+      console.error('Lỗi khi bóc tách OCR từ server:', error);
+      throw error;
     }
   },
 

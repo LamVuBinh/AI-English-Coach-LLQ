@@ -37,7 +37,8 @@ export const AiConfigModal: React.FC<AiConfigModalProps> = ({
   onClose,
   quotaExceededMessage,
 }) => {
-  const { role, showToast } = useApp();
+  const { role, currentAccount, showToast } = useApp();
+  const isTeacherOrAdmin = role === 'teacher' || currentAccount?.role === 'teacher';
 
   // Active tab: 'user' (Solution 1) or 'system' (Solution 2)
   const [activeTab, setActiveTab] = useState<'user' | 'system'>('user');
@@ -92,8 +93,8 @@ export const AiConfigModal: React.FC<AiConfigModalProps> = ({
     setUsePersonalKey(!!savedUserConfig.usePersonalKey);
     setUserTestResult(null);
 
-    // If quota exceeded message triggered, default to user tab
-    if (quotaExceededMessage) {
+    // Students only have access to personal API key tab
+    if (!isTeacherOrAdmin || quotaExceededMessage) {
       setActiveTab('user');
     }
 
@@ -102,7 +103,7 @@ export const AiConfigModal: React.FC<AiConfigModalProps> = ({
 
     // Load system config
     loadSystemConfig();
-  }, [isOpen, quotaExceededMessage]);
+  }, [isOpen, quotaExceededMessage, isTeacherOrAdmin]);
 
   const loadModels = async () => {
     setIsLoadingModels(true);
@@ -288,7 +289,9 @@ export const AiConfigModal: React.FC<AiConfigModalProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-indigo-200">
-                Lựa chọn cơ chế cấp phát AI cho toàn bộ tính năng chấm thi, OCR và lộ trình
+                {isTeacherOrAdmin
+                  ? 'Lựa chọn cơ chế cấp phát AI cho toàn bộ tính năng chấm thi, OCR và lộ trình'
+                  : 'Cấu hình Gemini API key cá nhân để sử dụng các tính năng chấm thi, OCR và gia sư AI'}
               </p>
             </div>
           </div>
@@ -313,50 +316,52 @@ export const AiConfigModal: React.FC<AiConfigModalProps> = ({
           </div>
         )}
 
-        {/* Navigation Tabs (Solution 1 vs Solution 2) */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-3 gap-2">
-          <button
-            onClick={() => setActiveTab('user')}
-            className={`pb-2.5 px-3.5 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
-              activeTab === 'user'
-                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg shadow-2xs'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <User className="w-4 h-4" />
-            <span>Giải pháp 1: API Key Cá Nhân</span>
-            {userApiKey && (
-              <span className="w-2 h-2 rounded-full bg-emerald-500" title="Đã lưu key cá nhân" />
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('system')}
-            className={`pb-2.5 px-3.5 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
-              activeTab === 'system'
-                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg shadow-2xs'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Server className="w-4 h-4" />
-            <span>Giải pháp 2: API Chung Toàn Web {role === 'teacher' ? '(Quản Trị)' : '(Hệ Thống)'}</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
-                systemConfig.isQuotaExceeded
-                  ? 'bg-rose-100 text-rose-700'
-                  : systemConfig.hasSystemKey
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : 'bg-slate-200 text-slate-600'
+        {/* Navigation Tabs (Only rendered for Teacher/Admin who have multiple tabs to switch) */}
+        {isTeacherOrAdmin && (
+          <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-3 gap-2">
+            <button
+              onClick={() => setActiveTab('user')}
+              className={`pb-2.5 px-3.5 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+                activeTab === 'user'
+                  ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg shadow-2xs'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
               }`}
             >
-              {systemConfig.isQuotaExceeded ? 'Hết tín dụng' : systemConfig.hasSystemKey ? 'Sẵn sàng' : 'Chưa có'}
-            </span>
-          </button>
-        </div>
+              <User className="w-4 h-4" />
+              <span>Giải pháp 1: API Key Cá Nhân</span>
+              {userApiKey && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500" title="Đã lưu key cá nhân" />
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('system')}
+              className={`pb-2.5 px-3.5 text-xs font-bold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+                activeTab === 'system'
+                  ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg shadow-2xs'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Server className="w-4 h-4" />
+              <span>Giải pháp 2: API Chung Toàn Web (Quản Trị)</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                  systemConfig.isQuotaExceeded
+                    ? 'bg-rose-100 text-rose-700'
+                    : systemConfig.hasSystemKey
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-slate-200 text-slate-600'
+                }`}
+              >
+                {systemConfig.isQuotaExceeded ? 'Hết tín dụng' : systemConfig.hasSystemKey ? 'Sẵn sàng' : 'Chưa có'}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Tab Content */}
         <div className="p-6 overflow-y-auto space-y-5 text-slate-700 flex-1">
-          {activeTab === 'user' ? (
+          {!isTeacherOrAdmin || activeTab === 'user' ? (
             /* ========================================================= */
             /* TAB 1: GIẢI PHÁP 1 - NGƯỜI DÙNG TỰ CẤU HÌNH API KEY CÁ NHÂN */
             /* ========================================================= */

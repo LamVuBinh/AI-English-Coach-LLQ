@@ -125,9 +125,9 @@ export const TeacherDashboard: React.FC = () => {
   const classAvg = studentsWithTests.length > 0
     ? (studentsWithTests.reduce((acc, curr) => acc + curr.avgScore, 0) / studentsWithTests.length).toFixed(2)
     : '0.00';
-  const criticalCount = dynamicStudents.filter((s) => s.status === 'critical').length;
-  const moderateCount = dynamicStudents.filter((s) => s.status === 'moderate').length;
-  const excellentCount = dynamicStudents.filter((s) => s.status === 'excellent').length;
+  const criticalCount = studentsWithTests.filter((s) => s.status === 'critical').length;
+  const moderateCount = studentsWithTests.filter((s) => s.status === 'moderate').length;
+  const excellentCount = studentsWithTests.filter((s) => s.status === 'excellent').length;
   const totalSubmissionsCount = submissions.length;
   const assignedExams = exams.filter((e) => e.isAssigned);
 

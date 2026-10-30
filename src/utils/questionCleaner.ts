@@ -1,4 +1,4 @@
-import { Question } from '../types';
+import { Question, QuestionSection, QuestionType } from '../types';
 
 export function cleanQuestionContent(text: string): string {
   if (!text) return '';
@@ -71,11 +71,11 @@ export function extractPassagesAndCleanQuestions(questions: Question[]): Questio
   }
 
   // Pass 2: Clean each question and properly attach passageText
-  return questions.map((q) => {
+  const sanitized: Question[] = questions.map((q: Question) => {
     let qText = q.questionText || '';
     let options = q.options ? [...q.options] : undefined;
-    let section = q.section;
-    let type = q.type;
+    let section: QuestionSection = q.section;
+    let type: QuestionType = q.type;
     let correctAnswer = q.correctAnswer;
     let passageText = q.passageText || '';
 
@@ -163,4 +163,55 @@ export function extractPassagesAndCleanQuestions(questions: Question[]): Questio
       passageText: passageText || undefined,
     };
   });
+
+  // Reorder 29, 30 and 35, 36 if they were inverted
+  const q29 = sanitized.find((q: Question) => q.number === 29);
+  const q30 = sanitized.find((q: Question) => q.number === 30);
+  const q35 = sanitized.find((q: Question) => q.number === 35);
+  const q36 = sanitized.find((q: Question) => q.number === 36);
+
+  const isQ29Wf = q29 && (q29.type === 'word_form' || q29.section?.toLowerCase().includes('word') || (!q29.options?.length && !q29.questionText?.includes('Rewrite') && !q29.questionText?.includes('->')));
+  const isQ30Wf = q30 && (q30.type === 'word_form' || q30.section?.toLowerCase().includes('word') || (!q30.options?.length && !q30.questionText?.includes('Rewrite') && !q30.questionText?.includes('->')));
+  const isQ35Mc = q35 && (q35.type === 'multiple_choice' || q35.type === 'true_false' || (q35.options && q35.options.length > 0));
+  const isQ36Mc = q36 && (q36.type === 'multiple_choice' || q36.type === 'true_false' || (q36.options && q36.options.length > 0));
+
+  if (isQ29Wf && isQ30Wf && isQ35Mc && isQ36Mc) {
+    return sanitized.map((q: Question): Question => {
+      if (q.number === 29) {
+        return {
+          ...q35,
+          number: 29,
+          section: 'Reading Comprehension' as QuestionSection,
+          type: (q35.type === 'true_false' ? 'true_false' : 'multiple_choice') as QuestionType,
+        };
+      }
+      if (q.number === 30) {
+        return {
+          ...q36,
+          number: 30,
+          section: 'Reading Comprehension' as QuestionSection,
+          type: (q36.type === 'true_false' ? 'true_false' : 'multiple_choice') as QuestionType,
+        };
+      }
+      if (q.number === 35) {
+        return {
+          ...q29,
+          number: 35,
+          section: 'Word Formation' as QuestionSection,
+          type: 'word_form' as QuestionType,
+        };
+      }
+      if (q.number === 36) {
+        return {
+          ...q30,
+          number: 36,
+          section: 'Word Formation' as QuestionSection,
+          type: 'word_form' as QuestionType,
+        };
+      }
+      return q;
+    }).sort((a: Question, b: Question) => a.number - b.number);
+  }
+
+  return sanitized;
 }

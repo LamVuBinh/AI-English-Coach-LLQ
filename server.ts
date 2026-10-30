@@ -126,42 +126,109 @@ const handleGeminiError = (res: express.Response, error: any) => {
 // ==========================================
 app.post('/api/ai/ocr-answer-sheet', async (req, res) => {
   try {
-    const { imageBase64, fileBase64, mimeType, questionCount = 40 } = req.body;
-    const incomingData = fileBase64 || imageBase64;
-    if (!incomingData) {
+    const { imageBase64, fileBase64, images, mimeType, questionCount = 40, questionsMeta = [] } = req.body;
+    const rawList: any[] = [];
+    if (Array.isArray(images) && images.length > 0) {
+      rawList.push(...images);
+    } else if (fileBase64 || imageBase64) {
+      rawList.push(fileBase64 || imageBase64);
+    }
+
+    if (rawList.length === 0) {
       return res.status(400).json({ error: 'Thiếu dữ liệu hình ảnh hoặc file PDF' });
     }
 
-    let detectedMime = mimeType;
-    if (!detectedMime) {
-      const match = incomingData.match(/^data:([^;]+);base64,/);
-      if (match) detectedMime = match[1];
+    const imageParts: any[] = [];
+    for (const item of rawList) {
+      let dataStr = typeof item === 'string' ? item : item?.data || item?.base64 || '';
+      let mType = (typeof item === 'object' && item?.mimeType) ? item.mimeType : mimeType;
+      if (!mType) {
+        const match = dataStr.match(/^data:([^;]+);base64,/);
+        if (match) mType = match[1];
+      }
+      if (!mType) mType = 'image/jpeg';
+      const clean = dataStr.replace(/^data:[^;]+;base64,/, '');
+      if (clean) {
+        imageParts.push({
+          inlineData: {
+            mimeType: mType.includes('pdf') ? 'application/pdf' : mType.startsWith('image/') ? mType : 'image/jpeg',
+            data: clean,
+          },
+        });
+      }
     }
-    if (!detectedMime) detectedMime = 'image/jpeg';
 
-    const cleanBase64 = incomingData.replace(/^data:[^;]+;base64,/, '');
+    if (imageParts.length === 0) {
+      return res.status(400).json({ error: 'Không thể xử lý dữ liệu hình ảnh tải lên' });
+    }
+
+    let questionsContext = '';
+    if (Array.isArray(questionsMeta) && questionsMeta.length > 0) {
+      questionsContext = `
+DANH SÁCH CÂU HỎI VÀ ĐỊNH DẠNG CỦA ĐỀ THI NÀY:
+${questionsMeta
+  .map((q: any) => {
+    let desc = `- Câu ${q.number} [Loại: ${q.type || 'multiple_choice'}]: ${q.questionText || ''}`;
+    if (q.type === 'word_form') {
+      desc += ` [YÊU CẦU: BIẾN ĐỔI TỪ LOẠI - Trích xuất 1 từ vựng hoàn chỉnh học sinh viết tay]`;
+    } else if (q.type === 'rewrite') {
+      desc += ` [YÊU CẦU ĐẶC BIỆT: VIẾT LẠI CÂU (REWRITE) - Trích xuất TOÀN BỘ CÂU TIẾNG ANH HOÀN CHỈNH do học sinh viết tay, KHÔNG ĐƯỢC CẮT BỚT TỪ]`;
+    }
+    return desc;
+  })
+  .join('\n')}
+`;
+    }
 
     const prompt = `
-Bạn là chuyên gia AI chấm thi Tiếng Anh vào lớp 10 TP.HCM.
-Nhiệm vụ: Trích xuất chính xác câu trả lời của học sinh từ ảnh chụp bài làm / phiếu trả lời trắc nghiệm / file PDF quét bài viết tay cho ${questionCount} câu hỏi.
-- Đối với câu trắc nghiệm (1-${questionCount}): Trả về chữ cái A, B, C, D (viết hoa). Nếu học sinh không khoanh/bỏ trống, để trống "" hoặc null.
-- Đối với câu tự luận / điền từ / biến đổi từ (Word Form) / viết lại câu (Sentence Transformation): Trích xuất chính xác chuỗi từ ngữ/câu học sinh đã viết.
-- Trả về danh sách câu trả lời theo đúng số thứ tự câu hỏi từ 1 đến ${questionCount}.
+Bạn là chuyên gia AI thị giác máy tính & khảo thí Tiếng Anh lớp 10 TP.HCM (Thông báo 3584 Sở GD&ĐT TP.HCM).
+Nhiệm vụ: Nhận diện, bóc tách chính xác BÀI LÀM CỦA HỌC SINH từ ${imageParts.length} trang ảnh chụp bài làm viết tay / phiếu trả lời của học sinh cho ${questionCount} câu hỏi (ví dụ trang 1 và trang 2, mặt trước và mặt sau). Bạn cần quan sát và tổng hợp đáp án trên tất cả các trang ảnh được cung cấp.
 
-Hãy trả về đúng định dạng JSON.
+${questionsContext}
+
+QUY TẮC CỐT LÕI: PHÂN BIỆT MÀU MỰC - CHỈ BÓC TÁCH BÀI LÀM CỦA HỌC SINH (MỰC XANH / ĐEN / BÚT CHÌ), TUYỆT ĐỐI BỎ QUA HOẶC KHÔNG LẤY MỰC ĐỎ CỦA GIÁO VIÊN!
+1. BÀI LÀM CỦA HỌC SINH (ĐỐI TƯỢNG DUY NHẤT CẦN TRÍCH XUẤT):
+   - Luôn được học sinh viết/khoanh bằng MỰC XANH (blue), MỰC ĐEN (black), hoặc BÚT CHÌ (pencil).
+   - Đây là câu trả lời ban đầu của chính học sinh làm trong bài kiểm tra.
+
+2. PHẦN CHẤM BÀI / CHỮA BÀI CỦA GIÁO VIÊN (TUYỆT ĐỐI KHÔNG ĐƯỢC LẤY LÀM ĐÁP ÁN CỦA HỌC SINH):
+   - Giáo viên chấm bài bằng MỰC ĐỎ (bút bi đỏ, bút dạ đỏ, red ink).
+   - Giáo viên thường dùng mực đỏ để: gạch chéo đỏ (X), gạch chân đỏ, tích V đỏ, khoanh tròn đỏ vào đáp án đúng, hoặc VIẾT ĐÈ / VIẾT SỬA ĐÁP ÁN ĐÚNG BẰNG MỰC ĐỎ (bên cạnh, bên trên hoặc bên lề).
+   - NGUYÊN TẮC:
+     + TUYỆT ĐỐI KHÔNG ĐƯỢC trích xuất chữ viết bằng mực đỏ của giáo viên vào trường "studentAnswer".
+     + Nếu học sinh viết sai và giáo viên dùng bút đỏ gạch chéo rồi viết từ/câu đúng bằng mực đỏ bên cạnh, bạn BẮT BUỘC PHẢI đọc chữ MỰC XANH/ĐEN/CHÌ CỦA HỌC SINH (kể cả khi đã bị nét mực đỏ gạch qua) để làm "studentAnswer".
+     + Mục tiêu là để hệ thống ghi nhận đúng lỗi sai thực tế mà học sinh đã mắc phải, phục vụ chấm điểm và phân tích lỗ hổng kiến thức.
+
+QUY TẮC CHI TIẾT THEO TỪNG DẠNG BÀI:
+1. ĐỐI VỚI DẠNG BÀI VIẾT LẠI CÂU (SENTENCE TRANSFORMATION / REWRITE - Thường là các câu 37, 38, 39, 40):
+   - ĐÂY LÀ PHẦN TRỌNG TÂM CẦN ĐỘ CHÍNH XÁC CAO NHẤT.
+   - Trích xuất CHÍNH XÁC CÂU MỰC XANH/ĐEN/CHÌ mà học sinh đã viết tay trên giấy, kể cả khi câu đó bị sai ngữ pháp hoặc bị giáo viên gạch sửa mực đỏ.
+   - Ví dụ:
+     * Học sinh viết bằng mực xanh: "Ba suggested to organize a cleanup campaign."
+     * Giáo viên gạch chéo mực đỏ chữ "to organize" và ghi mực đỏ "organizing".
+     * => "studentAnswer" BẮT BUỘC PHẢI LÀ: "Ba suggested to organize a cleanup campaign." (giữ nguyên lỗi học sinh đã viết tay), TUYỆT ĐỐI KHÔNG ĐƯỢC lấy chữ sửa "organizing" của giáo viên!
+   - Nếu học sinh chỉ viết vế sau của từ gợi ý (ví dụ đề in sẵn "Ba suggested..." và học sinh chỉ viết tiếp "...to organize a cleanup campaign."), hãy kết hợp lại thành câu hoàn chỉnh theo đúng bài làm của học sinh: "Ba suggested to organize a cleanup campaign."
+   - Đảm bảo trích xuất ĐẦY ĐỦ CÂU theo bài làm của học sinh, không cắt ngắn câu. Giữ đúng khoảng trắng giữa các từ.
+
+2. ĐỐI VỚI DẠNG BIẾN ĐỔI TỪ LOẠI (WORD FORMATION - Thường là các câu 31 đến 36):
+   - Trích xuất chính xác 1 từ biến đổi mà học sinh đã viết tay bằng mực xanh/đen/chì.
+   - Ví dụ: Học sinh viết mực xanh "pollute", giáo viên gạch mực đỏ và sửa chữ đỏ "pollution" bên cạnh -> "studentAnswer" BẮT BUỘC LÀ: "pollute".
+   - Đọc kỹ các hậu tố/tiền tố dễ nhầm: -able/-ible, -tion/-sion, in-/un-, -ity, -ly.
+
+3. ĐỐI VỚI CÂU TRẮC NGHIỆM & TRUE/FALSE (Thường là câu 1 đến 30):
+   - Trả về chữ cái in hoa A, B, C, D hoặc True, False do HỌC SINH KHOANH BẰNG MỰC XANH/ĐEN/CHÌ.
+   - Nếu học sinh khoanh B bằng mực xanh, giáo viên gạch chéo B bằng bút đỏ và khoanh A bằng bút đỏ (đáp án đúng) -> "studentAnswer" PHẢI LÀ "B" (đáp án học sinh đã khoanh), TUYỆT ĐỐI KHÔNG lấy chữ "A" mực đỏ của giáo viên.
+   - Nếu câu nào học sinh bỏ trống hoặc không đọc được trên bất kỳ trang nào, để chuỗi rỗng "".
+
+Hãy trả về định dạng JSON đúng schema đã cung cấp.
 `;
 
     const response = await callGeminiWithRetry(
       {
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-3.8-flash',
         contents: {
           parts: [
-            {
-              inlineData: {
-                mimeType: detectedMime,
-                data: cleanBase64,
-              },
-            },
+            ...imageParts,
             { text: prompt },
           ],
         },
@@ -670,7 +737,7 @@ function extractPassagesAndCleanQuestions(questions: any[]): any[] {
   }
 
   // Pass 2: Clean each question and properly attach passageText
-  return questions.map((q: any) => {
+  const sanitized = questions.map((q: any) => {
     let qText = q.questionText || '';
     let options = q.options ? [...q.options] : undefined;
     let section = q.section;
@@ -757,6 +824,37 @@ function extractPassagesAndCleanQuestions(questions: any[]): any[] {
       passageText: passageText || undefined,
     };
   });
+
+  // Reorder 29, 30 and 35, 36 if they were inverted
+  const q29 = sanitized.find((q: any) => q.number === 29);
+  const q30 = sanitized.find((q: any) => q.number === 30);
+  const q35 = sanitized.find((q: any) => q.number === 35);
+  const q36 = sanitized.find((q: any) => q.number === 36);
+
+  const isQ29Wf = q29 && (q29.type === 'word_form' || q29.section?.toLowerCase().includes('word') || (!q29.options?.length && !q29.questionText?.includes('Rewrite') && !q29.questionText?.includes('->')));
+  const isQ30Wf = q30 && (q30.type === 'word_form' || q30.section?.toLowerCase().includes('word') || (!q30.options?.length && !q30.questionText?.includes('Rewrite') && !q30.questionText?.includes('->')));
+  const isQ35Mc = q35 && (q35.type === 'multiple_choice' || q35.type === 'true_false' || (q35.options && q35.options.length > 0));
+  const isQ36Mc = q36 && (q36.type === 'multiple_choice' || q36.type === 'true_false' || (q36.options && q36.options.length > 0));
+
+  if (isQ29Wf && isQ30Wf && isQ35Mc && isQ36Mc) {
+    return sanitized.map((q: any) => {
+      if (q.number === 29) {
+        return { ...q35, number: 29, section: 'Reading Comprehension', type: q35.type === 'true_false' ? 'true_false' : 'multiple_choice' };
+      }
+      if (q.number === 30) {
+        return { ...q36, number: 30, section: 'Reading Comprehension', type: q36.type === 'true_false' ? 'true_false' : 'multiple_choice' };
+      }
+      if (q.number === 35) {
+        return { ...q29, number: 35, section: 'Word Formation', type: 'word_form' };
+      }
+      if (q.number === 36) {
+        return { ...q30, number: 36, section: 'Word Formation', type: 'word_form' };
+      }
+      return q;
+    }).sort((a: any, b: any) => a.number - b.number);
+  }
+
+  return sanitized;
 }
 
 // ==========================================
@@ -1094,6 +1192,7 @@ app.post('/api/ai/analyze-classroom-ocr', async (req, res) => {
   try {
     const {
       fileBase64,
+      files,
       mimeType,
       rawText,
       testTitle,
@@ -1103,34 +1202,64 @@ app.post('/api/ai/analyze-classroom-ocr', async (req, res) => {
       currentRoadmap,
     } = req.body;
 
-    let cleanBase64 = fileBase64;
-    let detectedMime = mimeType || 'image/jpeg';
-    if (cleanBase64 && cleanBase64.includes('base64,')) {
-      const parts = cleanBase64.split('base64,');
-      cleanBase64 = parts[1];
-      const match = parts[0].match(/data:(.*?);/);
-      if (match) detectedMime = match[1];
+    const fileParts: any[] = [];
+    const rawFileList: any[] = [];
+    if (Array.isArray(files) && files.length > 0) {
+      rawFileList.push(...files);
+    } else if (fileBase64) {
+      rawFileList.push({ base64: fileBase64, mimeType });
+    }
+
+    for (const f of rawFileList) {
+      let b64 = typeof f === 'string' ? f : f?.base64 || f?.data || '';
+      let fMime = (typeof f === 'object' && f?.mimeType) ? f.mimeType : mimeType;
+      if (b64 && b64.includes('base64,')) {
+        const partsSplit = b64.split('base64,');
+        b64 = partsSplit[1];
+        const m = partsSplit[0].match(/data:(.*?);/);
+        if (m) fMime = m[1];
+      } else {
+        b64 = b64.replace(/^data:[^;]+;base64,/, '');
+      }
+      if (!fMime) fMime = 'image/jpeg';
+      if (b64) {
+        fileParts.push({
+          inlineData: {
+            mimeType: fMime.includes('pdf') ? 'application/pdf' : fMime.startsWith('image/') ? fMime : 'image/jpeg',
+            data: b64,
+          },
+        });
+      }
     }
 
     const prompt = `
 Bạn là AI English Coach cao cấp, chuyên gia khảo thí & thiết kế lộ trình luyện thi vào lớp 10 TP.HCM theo chuẩn Thông báo 3584 Sở GD&ĐT TP.HCM và CT GDPT 2018.
 
-Học sinh vừa tải lên ảnh chụp/tệp kết quả bài kiểm tra trên lớp:
+Học sinh vừa tải lên ${fileParts.length > 0 ? `${fileParts.length} trang ảnh chụp/tệp kết quả bài kiểm tra trên lớp` : 'nội dung bài kiểm tra'}:
 - Tiêu đề bài kiểm tra: "${testTitle || 'Bài kiểm tra trên lớp'}"
 - Loại bài kiểm tra: "${testType || 'Bài kiểm tra định kỳ'}"
 - Thông tin học sinh: ${studentProfile?.name || 'Học sinh'} (Mục tiêu: ${studentProfile?.targetSchool || 'THPT Top 1'}, Điểm mục tiêu: ${studentProfile?.targetScore || 9.0}/10)
 - Mong muốn / Nguyện vọng điều chỉnh của học sinh: "${studentNotes || 'AI hãy phân tích và tối ưu lại lộ trình bồi dưỡng theo các lỗ hổng vừa phát hiện.'}"
 ${rawText ? `- Nội dung văn bản đề bài/bài làm: """${rawText}"""` : ''}
 
-QUY TẮC BẮT BUỘC KHI TRÍCH XUẤT CÂU TRẢ LỜI CỦA HỌC SINH (studentAnswer):
-1. Bạn phải đọc CỰC KỲ CẨN THẬN chữ viết tay, ký tự điền, hoặc dấu khoanh trắc nghiệm trên file ảnh/tài liệu được tải lên.
-2. Trích xuất CHÍNH XÁC 100% những gì học sinh đã thực sự ghi/khoanh trên giấy, giữ nguyên từng lỗi chính tả, từ viết sai, hoặc đáp án bị chọn nhầm của học sinh vào trường "studentAnswer".
-3. KHÔNG ĐƯỢC tự ý sửa lỗi chính tả, KHÔNG ĐƯỢC tự ý làm sạch câu trả lời, KHÔNG ĐƯỢC tự ý thay thế bằng đáp án đúng nếu học sinh làm sai. Ví dụ: Nếu học sinh viết sai chính tả thành "pollute" thay vì "pollution", trường "studentAnswer" bắt buộc phải là "pollute" để hệ thống chấm điểm là SAI (isCorrect: false) và tiến hành phân tích lỗi. Nếu học sinh khoanh nhầm "B" thay vì "A", trường "studentAnswer" phải là "B" (hoặc "B. that" tương ứng).
-4. Đối chiếu "studentAnswer" thực tế này với "correctAnswer" để quyết định "isCorrect" (true/false) chính xác nhất. Tuyệt đối không được đoán bừa hay tự động làm sạch câu trả lời.
+QUY TẮC CỐT LÕI: PHÂN BIỆT MÀU MỰC - CHỈ BÓC TÁCH BÀI LÀM CỦA HỌC SINH (MỰC XANH / ĐEN / BÚT CHÌ), TUYỆT ĐỐI BỎ QUA HOẶC KHÔNG LẤY MỰC ĐỎ CỦA GIÁO VIÊN!
+1. BÀI LÀM GỐC CỦA HỌC SINH (ĐỐI TƯỢNG DUY NHẤT TRÍCH XUẤT VÀO "studentAnswer"):
+   - Được viết hoặc khoanh bằng MỰC XANH (blue), MỰC ĐEN (black), hoặc BÚT CHÌ (pencil).
+   - Đây là câu trả lời thực tế do học sinh làm. Dù học sinh viết sai chính tả, sai ngữ pháp, hay khoanh nhầm đáp án, bạn BẮT BUỘC phải trích xuất NGUYÊN VĂN bài làm này vào "studentAnswer".
+
+2. PHẦN CHẤM BÀI / CHỮA ĐIỂM CỦA GIÁO VIÊN (TUYỆT ĐỐI KHÔNG ĐƯỢC LẤY LÀM "studentAnswer"):
+   - Giáo viên dùng MỰC ĐỎ (bút bi đỏ, bút dạ đỏ) để chấm điểm, gạch chéo (X đỏ), gạch chân đỏ, tích V đỏ, khoanh tròn đáp án đúng bằng mực đỏ, hoặc VIẾT ĐÈ / VIẾT SỬA ĐÁP ÁN ĐÚNG BẰNG MỰC ĐỎ (bên cạnh hoặc bên trên chữ học sinh).
+   - NGUYÊN TẮC:
+     + TUYỆT ĐỐI KHÔNG ĐƯỢC trích xuất chữ viết bằng mực đỏ của giáo viên vào "studentAnswer".
+     + Nếu học sinh viết sai và bị giáo viên gạch bỏ bằng mực đỏ rồi viết đáp án đúng bằng mực đỏ bên cạnh, bạn BẮT BUỘC PHẢI đọc chữ MỰC XANH/ĐEN/CHÌ CỦA HỌC SINH (nằm dưới nét gạch đỏ) để ghi vào "studentAnswer".
+     + Ví dụ: Học sinh viết mực xanh "pollute", giáo viên gạch đỏ và sửa chữ đỏ "pollution" bên cạnh -> "studentAnswer" PHẢI LÀ: "pollute" (để hệ thống chấm isCorrect: false và phân tích lỗi sai từ loại cho học sinh). Tuyệt đối không lấy chữ "pollution" của giáo viên!
+     + Ví dụ: Câu Rewrite học sinh viết mực xanh "Ba suggested to organize...", giáo viên gạch chéo "to organize" bằng bút đỏ và viết "organizing" bằng bút đỏ -> "studentAnswer" PHẢI LÀ: "Ba suggested to organize..." (bài làm gốc của học sinh).
+     + Ví dụ: Câu trắc nghiệm học sinh khoanh B (mực xanh), giáo viên gạch chéo đỏ chữ B và khoanh tròn đỏ chữ A -> "studentAnswer" PHẢI LÀ: "B".
+     + Tuy nhiên, phần mực đỏ của giáo viên (như các đáp án đúng giáo viên đã sửa) là nguồn tham khảo quý giá để xác định trường "correctAnswer".
 
 Nhiệm vụ của bạn:
 1. BÓC TÁCH VÀ CHẤM BÀI:
-   - Trích xuất các câu hỏi, câu trả lời của học sinh (studentAnswer) và đáp án chuẩn xác (correctAnswer) theo đúng QUY TẮC BẮT BUỘC trên.
+   - Trích xuất các câu hỏi, câu trả lời của học sinh (studentAnswer - chỉ lấy mực xanh/đen/chì) và đáp án chuẩn xác (correctAnswer) trên tất cả các trang theo đúng QUY TẮC CỐT LÕI trên.
    - Tính điểm theo thang điểm 10 (score), đếm số câu đúng (correctCount), số câu sai (wrongCount).
    - Đánh giá tổng quan (overallEvaluation) và lời khuyên động viên (encouragement).
 2. PHÂN TÍCH CHUYÊN SÂU LỖI SAI (itemAnalysis):
@@ -1150,23 +1279,17 @@ Nhiệm vụ của bạn:
 Trả về định dạng JSON chuẩn.
 `;
 
-    const parts: any[] = [];
-    if (cleanBase64) {
-      parts.push({
-        inlineData: {
-          mimeType: detectedMime.includes('pdf') ? 'application/pdf' : detectedMime.startsWith('image/') ? detectedMime : 'image/jpeg',
-          data: cleanBase64,
-        },
-      });
-    }
-    parts.push({ text: prompt });
+    const parts: any[] = [
+      ...fileParts,
+      { text: prompt },
+    ];
 
     let parsedResult: any = null;
 
     try {
       const response = await callGeminiWithRetry(
         {
-          model: 'gemini-3.1-flash-lite',
+          model: 'gemini-3.8-flash',
           contents: { parts },
           config: {
           responseMimeType: 'application/json',

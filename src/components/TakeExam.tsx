@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
 import { SAMPLE_EXAMS } from '../data/sampleExams';
+import { normalizeExam } from '../utils/examUtils';
 import {
   Exam,
   Question,
@@ -29,6 +30,8 @@ import {
   Layers,
   BookmarkCheck,
   Play,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -69,9 +72,10 @@ export const TakeExam: React.FC = () => {
   // Active exam to take. If the student explicitly selected the diagnostic exam, allow it (even if completed, for retaking).
   // Otherwise, fallback to the first available exam if diagnostic is completed, or default directly to the diagnostic exam.
   const isDiagnosticSelected = currentExam?.id === diagnosticExam?.id;
-  const exam: Exam | undefined =
+  const rawExam: Exam | undefined =
     (currentExam && (isDiagnosticSelected || !completedExamIds.has(currentExam.id)) ? currentExam : null) ||
     (isDiagnosticCompleted ? availableExams[0] : diagnosticExam);
+  const exam: Exam | undefined = rawExam ? normalizeExam(rawExam) : undefined;
 
   const showLockScreen = !isDiagnosticCompleted && exam?.id !== diagnosticExam?.id;
 
@@ -87,11 +91,20 @@ export const TakeExam: React.FC = () => {
   const [timeLeftSeconds, setTimeLeftSeconds] = useState((exam?.durationMinutes || 90) * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
 
-  // OCR Upload States
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  // OCR Multi-Image Upload States
+  interface UploadedExamImage {
+    id: string;
+    base64: string;
+    name: string;
+    size: string;
+    mimeType: string;
+  }
+  const [uploadedImages, setUploadedImages] = useState<UploadedExamImage[]>([]);
+  const uploadedImage = uploadedImages[0]?.base64 || null;
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
   const [ocrNotes, setOcrNotes] = useState<string | null>(null);
   const [ocrRawTextInput, setOcrRawTextInput] = useState<string>('');
+  const [ocrFilterSection, setOcrFilterSection] = useState<'all' | 'mc' | 'word_form' | 'rewrite'>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Submitting state
@@ -107,11 +120,37 @@ export const TakeExam: React.FC = () => {
       setAnswers({});
       setFlaggedQuestions(new Set());
       setActiveQuestionIdx(0);
-      setUploadedImage(null);
+      setUploadedImages([]);
       setOcrNotes(null);
       setOcrRawTextInput('');
+      setOcrFilterSection('all');
     }
   }, [exam?.id]);
+
+  // Auto-sync answers if question 29/30 and 35/36 swap occurred
+  useEffect(() => {
+    if (!exam) return;
+    const q29 = exam.questions.find((q) => q.number === 29);
+    const q35 = exam.questions.find((q) => q.number === 35);
+    if (!q29 || !q35) return;
+
+    const ans29 = (answers[29] || '').trim();
+    const ans35 = (answers[35] || '').trim();
+
+    const needSwap =
+      (q29.type === 'multiple_choice' && ans29.length > 2 && (/^[a-d]$/i.test(ans35) || !ans35)) ||
+      (q35.type === 'word_form' && /^[a-d]$/i.test(ans35) && ans29.length > 2);
+
+    if (needSwap) {
+      setAnswers((prev) => ({
+        ...prev,
+        29: prev[35] || '',
+        35: prev[29] || '',
+        30: prev[36] || '',
+        36: prev[30] || '',
+      }));
+    }
+  }, [exam?.id, answers[29], answers[35]]);
 
   // Countdown timer effect
   useEffect(() => {
@@ -153,80 +192,62 @@ export const TakeExam: React.FC = () => {
     const extracted: Record<number, string> = { ...answers };
     let count = 0;
 
-    // Try standard regex matching first: e.g. "1A", "Câu 1: A", "Câu 1. A", "1. A", "1-A", "1:A"
-    const regex = /(?:câu\s*)?(\d+)\s*[\.\-:]?\s*([a-d]|[a-z0-9_]+)/gi;
-    const matches = Array.from(ocrRawTextInput.matchAll(regex));
-    
-    if (matches.length > 0) {
-      matches.forEach((match) => {
+    // Line-by-line smart parser for both multiple-choice and multi-word sentences (rewrite)
+    const lines = ocrRawTextInput.split('\n');
+    const questionNumberPattern = /^(?:câu|question|\#)?\s*(\d+)[\.\-:\)\/]\s*(.*)$/i;
+
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      const match = trimmed.match(questionNumberPattern);
+      if (match) {
         const qNum = parseInt(match[1], 10);
-        const qAns = match[2].trim();
-        if (qNum > 0 && qNum <= maxQuestions) {
-          extracted[qNum] = qAns.toUpperCase();
+        let content = match[2].trim();
+        if (qNum > 0 && qNum <= maxQuestions && content) {
+          const qType = exam?.questions.find((q) => q.number === qNum)?.type;
+          // If multiple choice, uppercase single letter A-D
+          if (qType === 'multiple_choice' && /^[a-d]$/i.test(content)) {
+            content = content.toUpperCase();
+          }
+          extracted[qNum] = content;
           count++;
         }
-      });
-    }
-
-    // Secondary sequential parser to capture phrase-based/subjective answers
-    // e.g. "1. pollution 2. careful 3. lower bills"
-    const normalized = ocrRawTextInput.replace(/câu\s*(\d+)/gi, ' $1 ');
-    const numRegex = /(?:^|[\s\.,;\-\/])(\d+)(?:[\s\.,;\-\/:]|$)/g;
-    const seqMatches: { num: number; index: number; length: number }[] = [];
-    let match;
-    
-    while ((match = numRegex.exec(normalized)) !== null) {
-      const qNum = parseInt(match[1], 10);
-      if (qNum > 0 && qNum <= maxQuestions) {
-        const numStr = match[1];
-        const matchIndex = match.index;
-        const numberIndex = match[0].indexOf(numStr);
-        seqMatches.push({
-          num: qNum,
-          index: matchIndex + numberIndex,
-          length: numStr.length
-        });
-      }
-    }
-
-    if (seqMatches.length > 0) {
-      seqMatches.sort((a, b) => a.index - b.index);
-      for (let i = 0; i < seqMatches.length; i++) {
-        const current = seqMatches[i];
-        const start = current.index + current.length;
-        const end = (i + 1 < seqMatches.length) ? seqMatches[i + 1].index : normalized.length;
-        
-        let rawAnswer = normalized.substring(start, end);
-        // Clean leading separators
-        rawAnswer = rawAnswer.replace(/^[\s\.\-:=)\/,;]+/, '');
-        // Trim and remove trailing separators
-        rawAnswer = rawAnswer.trim();
-        rawAnswer = rawAnswer.replace(/[\s\.\-:=)\/,;]+$/, '');
-        
-        if (rawAnswer && rawAnswer.length <= 150) {
-          const cleanAns = /^[a-d]$/i.test(rawAnswer) ? rawAnswer.toUpperCase() : rawAnswer;
-          if (!extracted[current.num] || extracted[current.num].length < cleanAns.length) {
-            extracted[current.num] = cleanAns;
-            count++;
-          }
-        }
-      }
-    }
-
-    // Calculate how many answers were actually updated/added
-    let updatedCount = 0;
-    Object.keys(extracted).forEach((key) => {
-      const qNum = parseInt(key, 10);
-      if (extracted[qNum] !== answers[qNum]) {
-        updatedCount++;
       }
     });
 
-    if (updatedCount > 0 || count > 0) {
+    // If line-by-line didn't match many (e.g. all on one line or mixed), parse with token scanner
+    if (count === 0) {
+      // Split on question patterns e.g. "1A 2B 3C..." or "Câu 1: A, Câu 2: B"
+      const tokenRegex = /(?:câu|question)?\s*(\d+)[\.\-:\)]?\s*([A-D]|True|False)/gi;
+      let tokenMatch;
+      while ((tokenMatch = tokenRegex.exec(ocrRawTextInput)) !== null) {
+        const qNum = parseInt(tokenMatch[1], 10);
+        const ans = tokenMatch[2].trim();
+        if (qNum > 0 && qNum <= maxQuestions) {
+          extracted[qNum] = ans.toUpperCase();
+          count++;
+        }
+      }
+
+      // Also check sequential numbers for sentences e.g. "37. Because of... 38. The scientist..."
+      const seqRegex = /(?:^|[\n\r])\s*(?:câu\s*)?(\d+)[\.\-:\)]\s*([^\n\r]+)/gi;
+      let seqMatch;
+      while ((seqMatch = seqRegex.exec(ocrRawTextInput)) !== null) {
+        const qNum = parseInt(seqMatch[1], 10);
+        const ans = seqMatch[2].trim();
+        if (qNum > 0 && qNum <= maxQuestions && ans) {
+          extracted[qNum] = ans;
+          count++;
+        }
+      }
+    }
+
+    if (count > 0) {
       setAnswers(extracted);
-      showToast(`Đã tự động trích xuất và điền thành công ${Math.max(updatedCount, count)} đáp án từ văn bản!`);
+      showToast(`Đã tự động trích xuất và điền thành công ${count} câu trả lời từ văn bản!`);
     } else {
-      showToast('Không tìm thấy định dạng câu trả lời phù hợp (Ví dụ mẫu: 1A, 2. B, Câu 3: C hoặc 1. pollution 2. careful...).');
+      showToast('Không tìm thấy định dạng câu trả lời phù hợp (Ví dụ mẫu: 1A, 2. B, hoặc Câu 37: Ba suggested...).');
     }
   };
 
@@ -239,40 +260,112 @@ export const TakeExam: React.FC = () => {
     });
   };
 
-  // Handle OCR image upload
+  // Run OCR for a list of images
+  const runOcrForImages = async (imagesToScan: UploadedExamImage[]) => {
+    if (!exam || imagesToScan.length === 0) return;
+    setIsOcrProcessing(true);
+    showToast(
+      imagesToScan.length > 1
+        ? `AI Gemini 3.8 Flash Vision đang quét và trích xuất chữ viết tay từ ${imagesToScan.length} trang ảnh bài làm...`
+        : 'AI Gemini 3.8 Flash Vision đang quét và trích xuất chi tiết chữ viết tay bài làm...'
+    );
+
+    try {
+      const questionsMeta = exam.questions.map((q) => ({
+        number: q.number,
+        type: q.type,
+        section: q.section,
+        questionText: q.questionText,
+        rootWord: q.type === 'word_form' ? q.questionText.match(/\(([A-Z\s]+)\)/)?.[1] : undefined,
+      }));
+
+      const ocrResult = await apiService.ocrAnswerSheet(
+        imagesToScan.map((img) => img.base64),
+        exam.questions.length || 40,
+        questionsMeta
+      );
+      const extracted: Record<number, string> = { ...answers };
+      let rewriteCount = 0;
+      let totalExtracted = 0;
+
+      ocrResult.detectedQuestions.forEach((item) => {
+        if (item.studentAnswer !== undefined && item.studentAnswer !== null) {
+          const val = String(item.studentAnswer).trim();
+          if (val) {
+            extracted[item.questionNumber] = val;
+            totalExtracted++;
+            const qMeta = exam.questions.find((q) => q.number === item.questionNumber);
+            if (qMeta?.type === 'rewrite') rewriteCount++;
+          }
+        }
+      });
+
+      setAnswers(extracted);
+      setOcrNotes(
+        ocrResult.generalNotes ||
+          `AI đã nhận diện thành công đáp án từ ${imagesToScan.length} trang ảnh bài làm!`
+      );
+      showToast(
+        rewriteCount > 0
+          ? `Trích xuất OCR từ ${imagesToScan.length} ảnh thành công! Đã bóc tách chính xác ${rewriteCount} câu viết lại (Rewrite) và ${totalExtracted - rewriteCount} câu khác.`
+          : `Trích xuất OCR từ ${imagesToScan.length} ảnh thành công ${totalExtracted} câu! Hãy kiểm tra lại trước khi nộp.`
+      );
+    } catch (error: any) {
+      console.error(error);
+      showToast('Lỗi khi bóc tách OCR: ' + (error?.message || 'Vui lòng thử lại.'));
+    } finally {
+      setIsOcrProcessing(false);
+    }
+  };
+
+  // Handle OCR multiple image upload
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!exam) return;
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-      setUploadedImage(base64);
-      setIsOcrProcessing(true);
-      showToast('AI đang quét và trích xuất câu trả lời từ hình ảnh bài làm...');
+    const fileList = Array.from(files);
+    const readPromises = fileList.map((file, idx) => {
+      return new Promise<UploadedExamImage>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve({
+            id: 'img-' + Date.now() + '-' + idx + '-' + Math.random().toString(36).substring(2, 6),
+            base64: reader.result as string,
+            name: file.name,
+            size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+            mimeType: file.type || 'image/jpeg',
+          });
+        };
+        reader.readAsDataURL(file);
+      });
+    });
 
-      try {
-        const ocrResult = await apiService.ocrAnswerSheet(base64, exam.questions.length || 40);
-        const extracted: Record<number, string> = { ...answers };
+    const newUploaded = await Promise.all(readPromises);
+    const combined = [...uploadedImages, ...newUploaded];
+    setUploadedImages(combined);
 
-        ocrResult.detectedQuestions.forEach((item) => {
-          if (item.studentAnswer) {
-            extracted[item.questionNumber] = item.studentAnswer.trim();
-          }
-        });
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
 
-        setAnswers(extracted);
-        setOcrNotes(ocrResult.generalNotes || 'AI đã nhận diện thành công đáp án!');
-        showToast('Trích xuất OCR thành công! Hãy kiểm tra lại trước khi nộp.');
-      } catch (error) {
-        console.error(error);
-        showToast('Lỗi khi bóc tách OCR. Vui lòng thử lại hoặc điền trực tiếp.');
-      } finally {
-        setIsOcrProcessing(false);
-      }
-    };
-    reader.readAsDataURL(file);
+    await runOcrForImages(combined);
+  };
+
+  const handleRemoveImage = (idToRemove: string) => {
+    const remaining = uploadedImages.filter((img) => img.id !== idToRemove);
+    setUploadedImages(remaining);
+    if (remaining.length === 0) {
+      setOcrNotes(null);
+    } else {
+      showToast(`Đã xóa ảnh. Còn lại ${remaining.length} trang ảnh.`);
+    }
+  };
+
+  const handleClearAllImages = () => {
+    setUploadedImages([]);
+    setOcrNotes(null);
+    showToast('Đã xóa tất cả ảnh bài làm.');
   };
 
   // Submit and grade exam
@@ -566,55 +659,107 @@ export const TakeExam: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-4 border-t border-slate-100">
               {/* Left Column: Image Upload & Text Input */}
               <div className="lg:col-span-5 space-y-4">
-                {/* Upload Section / Preview */}
-                {!uploadedImage ? (
+                {/* Multi-Image Upload Section / Preview */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImageFileChange}
+                  accept="image/*,.pdf,application/pdf"
+                  multiple
+                  className="hidden"
+                />
+
+                {uploadedImages.length === 0 ? (
                   <div
                     onClick={() => fileInputRef.current?.click()}
                     className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/40 hover:bg-indigo-50/80 rounded-2xl p-6 text-center cursor-pointer transition-all space-y-2"
                   >
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleImageFileChange}
-                      accept="image/*,.pdf,application/pdf"
-                      className="hidden"
-                    />
                     <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center mx-auto shadow-md">
                       <UploadCloud className="w-5 h-5" />
                     </div>
                     <div>
                       <p className="text-xs font-bold text-indigo-950">
-                        Tải ảnh chụp bài làm (Không bắt buộc)
+                        Tải ảnh chụp bài làm (Chọn được nhiều ảnh cùng lúc)
                       </p>
                       <p className="text-[10px] text-slate-500">
-                        Kéo thả hoặc nhấp để tải ảnh để AI quét OCR tự động
+                        Kéo thả hoặc nhấp để tải 1 hoặc nhiều ảnh (Trang 1, Trang 2, mặt trước, mặt sau) để AI quét OCR
                       </p>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200">
                     <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1.5">
                         <FileImage className="w-4 h-4 text-emerald-600" />
-                        Ảnh bài làm đã tải lên:
+                        Đã tải lên <span className="text-indigo-600 font-extrabold">{uploadedImages.length}</span> trang ảnh bài làm:
                       </span>
-                      <button
-                        onClick={() => {
-                          setUploadedImage(null);
-                          setOcrNotes(null);
-                        }}
-                        className="text-rose-600 hover:underline flex items-center gap-1 cursor-pointer text-xs font-bold"
-                      >
-                        Xóa ảnh
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="text-indigo-600 hover:text-indigo-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer bg-white px-2 py-0.5 rounded-lg border border-indigo-200 hover:bg-indigo-50 transition-colors"
+                        >
+                          <Plus className="w-3 h-3" /> Thêm ảnh
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleClearAllImages}
+                          className="text-rose-600 hover:text-rose-800 text-[11px] font-bold cursor-pointer"
+                        >
+                          Xóa tất cả
+                        </button>
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-900 max-h-48 flex items-center justify-center">
-                      <img
-                        src={uploadedImage}
-                        alt="Bài làm học sinh"
-                        className="max-h-48 object-contain w-full"
-                      />
+
+                    {/* Thumbnail list */}
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {uploadedImages.map((img, idx) => (
+                        <div
+                          key={img.id}
+                          className="flex items-center justify-between gap-3 p-2 rounded-xl bg-white border border-slate-200 shadow-2xs hover:border-indigo-200 transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5 overflow-hidden">
+                            <div className="relative w-12 h-12 rounded-lg overflow-hidden bg-slate-900 shrink-0 border border-slate-200">
+                              <img
+                                src={img.base64}
+                                alt={`Trang ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.2 rounded-md">
+                                  Trang {idx + 1}
+                                </span>
+                                <p className="text-xs font-semibold text-slate-800 truncate max-w-[130px]">
+                                  {img.name}
+                                </p>
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5">{img.size}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(img.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Xóa trang ảnh này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
+
+                    {/* Re-scan button */}
+                    <button
+                      type="button"
+                      onClick={() => runOcrForImages(uploadedImages)}
+                      disabled={isOcrProcessing}
+                      className="w-full py-1.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 border border-indigo-200 cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isOcrProcessing ? 'animate-spin' : ''}`} />
+                      Quét lại OCR {uploadedImages.length} trang ảnh
+                    </button>
                   </div>
                 )}
 
@@ -651,6 +796,24 @@ export const TakeExam: React.FC = () => {
                       </button>
                     )}
                   </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOcrRawTextInput(`1A\n2A\n3D\n4B\n5C\n6B\n7A\n8B\n9B\n10A\n11B\n12C\n13A\n14D\n15B\n16C\n17A\n18B\n19C\n20D\n21B\n22A\n23 True\n24 False\n25B\n26B\n27A\n28A\n29B\n30B\n31. renewable\n32. seriously\n33. expectancy\n34. inconvenient\n35. hospitality\n36. dramatically\n37. Ba suggested organizing a campus cleanup campaign this Sunday.\n38. The young female scientist whom you met yesterday delivered an inspiring speech at the seminar.\n39. If he had a bike or scooter, he could travel to school much faster.\n40. Although the project was practical, nobody wanted to carry it out.`);
+                        showToast('Đã nạp mẫu bài làm đầy đủ trắc nghiệm và câu Rewrite!');
+                      }}
+                      className="text-[10px] text-indigo-700 hover:text-indigo-900 font-bold underline cursor-pointer"
+                    >
+                      + Nạp mẫu câu trả lời &amp; Rewrite
+                    </button>
+                    {ocrRawTextInput && (
+                      <span className="text-[10px] text-slate-400">
+                        {ocrRawTextInput.split('\n').length} dòng
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {ocrNotes && (
@@ -660,40 +823,254 @@ export const TakeExam: React.FC = () => {
                 )}
               </div>
 
-              {/* Right Column: Answers Grid (ALWAYS visible) */}
+              {/* Right Column: Answers Review & Editing Panel (ALWAYS visible) */}
               <div className="lg:col-span-7 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      Danh sách đáp án đã chọn ({answeredCount}/{totalQuestions} câu)
+                      Rà soát & Chỉnh sửa đáp án ({answeredCount}/{totalQuestions} câu)
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Hãy rà soát lại câu trả lời. Em có thể click vào từng ô bên dưới để tự nhập hoặc sửa đổi.
+                      AI đã bóc tách chữ viết tay. Em hãy rà soát kỹ nội dung, đặc biệt là các câu <strong>Viết lại câu (Rewrite)</strong> trước khi nộp.
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 max-h-[340px] overflow-y-auto p-1 border border-slate-100 rounded-xl bg-slate-50/50">
-                  {exam.questions.map((q) => (
-                    <div
-                      key={q.number}
-                      className="bg-white rounded-xl p-2.5 border border-slate-200 space-y-1 shadow-2xs"
-                    >
-                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                        <span>Câu {q.number}:</span>
-                        <span className="text-[9px] text-slate-400 uppercase">{q.type}</span>
+                {/* Section Filter Pills */}
+                {(() => {
+                  const mcQuestions = exam.questions.filter((q) => q.type !== 'word_form' && q.type !== 'rewrite');
+                  const wfQuestions = exam.questions.filter((q) => q.type === 'word_form');
+                  const rewriteQuestions = exam.questions.filter((q) => q.type === 'rewrite');
+
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setOcrFilterSection('all')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            ocrFilterSection === 'all'
+                              ? 'bg-white text-indigo-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Tất cả ({totalQuestions})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOcrFilterSection('mc')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            ocrFilterSection === 'mc'
+                              ? 'bg-white text-indigo-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Trắc nghiệm ({mcQuestions.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOcrFilterSection('word_form')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            ocrFilterSection === 'word_form'
+                              ? 'bg-white text-indigo-700 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Word Form ({wfQuestions.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOcrFilterSection('rewrite')}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                            ocrFilterSection === 'rewrite'
+                              ? 'bg-amber-400 text-indigo-950 shadow-xs'
+                              : 'text-slate-600 hover:text-amber-800'
+                          }`}
+                        >
+                          <Sparkles className="w-3 h-3 text-amber-600" />
+                          Viết lại câu ({rewriteQuestions.length})
+                        </button>
                       </div>
-                      <input
-                        type="text"
-                        value={answers[q.number] || ''}
-                        onChange={(e) => handleTextAnswerChange(q.number, e.target.value)}
-                        placeholder="Chưa có"
-                        className="w-full px-2 py-1 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-center uppercase"
-                      />
+
+                      {/* Scrollable Questions Container */}
+                      <div className="max-h-[380px] overflow-y-auto p-2 border border-slate-200 rounded-2xl bg-slate-50/60 space-y-3">
+                        {/* 1. REWRITE QUESTIONS SECTION */}
+                        {(ocrFilterSection === 'all' || ocrFilterSection === 'rewrite') && rewriteQuestions.length > 0 && (
+                          <div className="space-y-2.5">
+                            {ocrFilterSection === 'all' && (
+                              <div className="flex items-center gap-1.5 text-xs font-extrabold text-amber-900 bg-amber-100/70 px-2.5 py-1 rounded-lg border border-amber-200">
+                                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                                <span>PHẦN VIẾT LẠI CÂU (SENTENCE TRANSFORMATION - {rewriteQuestions.length} CÂU)</span>
+                              </div>
+                            )}
+
+                            {rewriteQuestions.map((q) => {
+                              const ansVal = answers[q.number] || '';
+                              const isFilled = ansVal.trim().length > 0;
+
+                              return (
+                                <div
+                                  key={q.number}
+                                  className="bg-white rounded-2xl p-3.5 border border-amber-200/90 shadow-2xs space-y-2.5 transition-all hover:border-amber-400"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-6 h-6 rounded-lg bg-amber-500 text-white font-black text-xs flex items-center justify-center shadow-xs">
+                                        {q.number}
+                                      </span>
+                                      <span className="text-xs font-bold text-amber-950 uppercase tracking-wide">
+                                        Câu {q.number}: Viết lại câu
+                                      </span>
+                                    </div>
+                                    <span
+                                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                                        isFilled
+                                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                          : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                      }`}
+                                    >
+                                      {isFilled ? (
+                                        <>
+                                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                          Đã bóc tách nội dung
+                                        </>
+                                      ) : (
+                                        <>
+                                          <AlertCircle className="w-3 h-3 text-amber-600" />
+                                          Chưa có nội dung
+                                        </>
+                                      )}
+                                    </span>
+                                  </div>
+
+                                  {/* Prompt content */}
+                                  <div className="bg-amber-50/50 p-2.5 rounded-xl border border-amber-100 text-xs text-slate-700 leading-relaxed">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+                                      Đề bài gốc:
+                                    </p>
+                                    <p className="font-semibold text-slate-800">{q.questionText}</p>
+                                  </div>
+
+                                  {/* Input field for the handwritten full sentence */}
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600">
+                                      <label className="text-indigo-950 font-bold flex items-center gap-1">
+                                        Nội dung câu viết lại hoàn chỉnh:
+                                      </label>
+                                      {ansVal && (
+                                        <span className="text-[10px] text-slate-400">
+                                          {ansVal.length} ký tự
+                                        </span>
+                                      )}
+                                    </div>
+                                    <textarea
+                                      rows={2}
+                                      value={ansVal}
+                                      onChange={(e) => handleTextAnswerChange(q.number, e.target.value)}
+                                      placeholder="Nhập hoặc chỉnh sửa câu viết lại hoàn chỉnh của học sinh..."
+                                      className="w-full px-3 py-2 text-xs font-medium text-slate-800 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 shadow-2xs leading-relaxed"
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* 2. WORD FORM QUESTIONS SECTION */}
+                        {(ocrFilterSection === 'all' || ocrFilterSection === 'word_form') && wfQuestions.length > 0 && (
+                          <div className="space-y-2">
+                            {ocrFilterSection === 'all' && (
+                              <div className="flex items-center gap-1.5 text-xs font-extrabold text-indigo-900 bg-indigo-100/70 px-2.5 py-1 rounded-lg border border-indigo-200 mt-2">
+                                <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>PHẦN BIẾN ĐỔI TỪ LOẠI (WORD FORMATION - {wfQuestions.length} CÂU)</span>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {wfQuestions.map((q) => {
+                                const rootWord = q.questionText.match(/\(([A-Z\s]+)\)/)?.[1];
+                                return (
+                                  <div
+                                    key={q.number}
+                                    className="bg-white rounded-xl p-2.5 border border-indigo-100 shadow-2xs space-y-1.5"
+                                  >
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                                      <span className="flex items-center gap-1">
+                                        <span className="w-5 h-5 rounded bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">
+                                          {q.number}
+                                        </span>
+                                        <span>Câu {q.number}</span>
+                                        {rootWord && (
+                                          <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded">
+                                            {rootWord}
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span
+                                        className={`text-[10px] font-semibold ${
+                                          answers[q.number] ? 'text-emerald-700' : 'text-slate-400'
+                                        }`}
+                                      >
+                                        {answers[q.number] ? '✓ Đã điền' : 'Chưa có'}
+                                      </span>
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={answers[q.number] || ''}
+                                      onChange={(e) => handleTextAnswerChange(q.number, e.target.value)}
+                                      placeholder="Từ biến đổi (vd: renewable)..."
+                                      className="w-full px-2.5 py-1.5 text-xs font-medium text-slate-800 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white shadow-2xs"
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 3. MULTIPLE CHOICE QUESTIONS SECTION */}
+                        {(ocrFilterSection === 'all' || ocrFilterSection === 'mc') && mcQuestions.length > 0 && (
+                          <div className="space-y-2">
+                            {ocrFilterSection === 'all' && (
+                              <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-800 bg-slate-200/70 px-2.5 py-1 rounded-lg border border-slate-300 mt-2">
+                                <Layers className="w-3.5 h-3.5 text-slate-600" />
+                                <span>PHẦN TRẮC NGHIỆM & ĐÚNG/SAI ({mcQuestions.length} CÂU)</span>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {mcQuestions.map((q) => (
+                                <div
+                                  key={q.number}
+                                  className="bg-white rounded-xl p-2 border border-slate-200 space-y-1 shadow-2xs hover:border-slate-300 transition-all"
+                                >
+                                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                                    <span>Câu {q.number}:</span>
+                                    <span className="text-[9px] text-slate-400 uppercase">
+                                      {q.type === 'multiple_choice' ? 'TN' : q.type}
+                                    </span>
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={answers[q.number] || ''}
+                                    onChange={(e) =>
+                                      handleTextAnswerChange(q.number, e.target.value.toUpperCase())
+                                    }
+                                    placeholder="-"
+                                    maxLength={5}
+                                    className="w-full px-2 py-1 text-xs font-extrabold bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white text-center uppercase text-indigo-700"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
 
                 {/* Submit OCR Button */}
                 <div className="pt-2 flex justify-end">

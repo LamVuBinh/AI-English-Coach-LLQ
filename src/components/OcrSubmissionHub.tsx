@@ -23,6 +23,9 @@ import {
   RotateCcw,
   Target,
   BookOpen,
+  FileImage,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -42,11 +45,19 @@ export const OcrSubmissionHub: React.FC = () => {
   const [testTitle, setTestTitle] = useState<string>('Bài kiểm tra Giữa kỳ 2 - Tiếng Anh 9 (Trường THCS)');
   const [studentNotes, setStudentNotes] = useState<string>('Em muốn tập trung bồi dưỡng cấp tốc phần Word Formation và Viết lại câu để nâng điểm lên 9.0.');
 
-  // File Upload State
-  const [fileBase64, setFileBase64] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [fileSize, setFileSize] = useState<string | null>(null);
-  const [mimeType, setMimeType] = useState<string>('image/jpeg');
+  // Multi-File Upload State
+  interface UploadedSubmissionFile {
+    id: string;
+    base64: string;
+    name: string;
+    size: string;
+    mimeType: string;
+  }
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedSubmissionFile[]>([]);
+  const fileBase64 = uploadedFiles[0]?.base64 || null;
+  const fileName = uploadedFiles[0]?.name || null;
+  const fileSize = uploadedFiles[0]?.size || null;
+  const mimeType = uploadedFiles[0]?.mimeType || 'image/jpeg';
   const [rawText, setRawText] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,20 +76,51 @@ export const OcrSubmissionHub: React.FC = () => {
     'Đẩy nhanh tiến độ mục tiêu 9.0+ điểm',
   ];
 
-  // Handle file select
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Handle multiple files select
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    setFileName(file.name);
-    setFileSize((file.size / (1024 * 1024)).toFixed(2) + ' MB');
-    setMimeType(file.type || 'image/jpeg');
+    const fileList = Array.from(files);
+    const readPromises = fileList.map((file, idx) => {
+      return new Promise<UploadedSubmissionFile>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve({
+            id: 'file-' + Date.now() + '-' + idx + '-' + Math.random().toString(36).substring(2, 6),
+            base64: reader.result as string,
+            name: file.name,
+            size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+            mimeType: file.type || 'image/jpeg',
+          });
+        };
+        reader.readAsDataURL(file);
+      });
+    });
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFileBase64(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    const newFiles = await Promise.all(readPromises);
+    setUploadedFiles((prev) => {
+      const combined = [...prev, ...newFiles];
+      showToast(`Đã thêm ${newFiles.length} tệp/ảnh bài làm! Tổng cộng: ${combined.length} trang.`);
+      return combined;
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveFile = (idToRemove: string) => {
+    setUploadedFiles((prev) => {
+      const remaining = prev.filter((f) => f.id !== idToRemove);
+      showToast(`Đã xóa tệp. Còn lại ${remaining.length} trang bài làm.`);
+      return remaining;
+    });
+  };
+
+  const handleClearAllFiles = () => {
+    setUploadedFiles([]);
+    showToast('Đã xóa tất cả tệp/ảnh bài làm.');
   };
 
   // Quick sample loaders
@@ -151,8 +193,8 @@ A. or  B. and  C. but  D. so (Học sinh chọn: A - Đúng)`);
 
   // Submit and analyze
   const handleStartAnalysis = async () => {
-    if (inputMode === 'upload_file' && !fileBase64) {
-      showToast('Vui lòng tải lên ảnh chụp bài làm hoặc chọn bài mẫu để kiểm tra.');
+    if (inputMode === 'upload_file' && uploadedFiles.length === 0) {
+      showToast('Vui lòng tải lên 1 hoặc nhiều ảnh chụp bài làm hoặc chọn bài mẫu để kiểm tra.');
       return;
     }
     if (inputMode === 'raw_text' && !rawText.trim()) {
@@ -163,7 +205,11 @@ A. or  B. and  C. but  D. so (Học sinh chọn: A - Đúng)`);
     setIsAnalyzing(true);
     setAnalysisStep(1);
     setIsRoadmapApplied(false);
-    showToast('AI Vision đang bóc tách bài kiểm tra và đối chiếu ma trận đề thi 3584...');
+    showToast(
+      uploadedFiles.length > 1
+        ? `AI Vision đang bóc tách ${uploadedFiles.length} trang bài kiểm tra và đối chiếu ma trận đề thi 3584...`
+        : 'AI Vision đang bóc tách bài kiểm tra và đối chiếu ma trận đề thi 3584...'
+    );
 
     // Progress animation
     const stepInterval = setInterval(() => {
@@ -172,8 +218,17 @@ A. or  B. and  C. but  D. so (Học sinh chọn: A - Đúng)`);
 
     try {
       const result = await apiService.analyzeClassroomOcr({
-        fileBase64: inputMode === 'upload_file' ? (fileBase64 || undefined) : undefined,
-        mimeType: inputMode === 'upload_file' ? mimeType : undefined,
+        files:
+          inputMode === 'upload_file'
+            ? uploadedFiles.map((f) => ({
+                base64: f.base64,
+                mimeType: f.mimeType,
+                name: f.name,
+                size: f.size,
+              }))
+            : undefined,
+        fileBase64: inputMode === 'upload_file' ? uploadedFiles[0]?.base64 : undefined,
+        mimeType: inputMode === 'upload_file' ? uploadedFiles[0]?.mimeType : undefined,
         rawText: inputMode === 'raw_text' ? rawText : undefined,
         testTitle: testTitle.trim() || 'Bài kiểm tra trên lớp',
         testType,
@@ -417,50 +472,118 @@ A. or  B. and  C. but  D. so (Học sinh chọn: A - Đúng)`);
             </div>
           </div>
 
-          {/* File Upload / Text Area */}
+          {/* Multi-File Upload / Text Area */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept="image/*,.pdf,application/pdf"
+            multiple
+            className="hidden"
+          />
+
           {inputMode === 'upload_file' ? (
             <div className="space-y-4">
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-2xl p-8 text-center cursor-pointer transition-all space-y-3"
-              >
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  accept="image/*,.pdf,application/pdf"
-                  className="hidden"
-                />
-
-                <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center mx-auto shadow-md">
-                  <ScanLine className="w-7 h-7" />
-                </div>
-
-                <div>
-                  <p className="text-sm font-bold text-slate-900">
-                    Nhấp để tải lên ảnh chụp bài làm hoặc file PDF (JPG, PNG, PDF)
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Hỗ trợ quét chữ viết tay học sinh, phiếu trắc nghiệm khoanh tròn, bài tự luận chấm điểm
-                  </p>
-                </div>
-
-                {fileName && (
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold border border-emerald-200">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    Đã chọn tệp: {fileName} ({fileSize})
+              {uploadedFiles.length === 0 ? (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/30 hover:bg-indigo-50/60 rounded-2xl p-8 text-center cursor-pointer transition-all space-y-3"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center mx-auto shadow-md">
+                    <ScanLine className="w-7 h-7" />
                   </div>
-                )}
-              </div>
 
-              {/* Preview Image if image uploaded */}
-              {fileBase64 && mimeType.startsWith('image/') && (
-                <div className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-900 max-h-72 flex items-center justify-center p-2">
-                  <img
-                    src={fileBase64}
-                    alt="Xem trước bài làm"
-                    className="max-h-64 object-contain rounded-lg"
-                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">
+                      Tải lên các trang ảnh chụp bài làm hoặc file PDF (Chọn được nhiều ảnh cùng lúc)
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Hỗ trợ tải lên nhiều trang ảnh (Trang 1, Trang 2, mặt trước, mặt sau) để AI quét toàn bộ chữ viết tay và bài làm
+                    </p>
+                  </div>
+
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 rounded-xl text-xs font-semibold border border-indigo-200">
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    Nhấp để duyệt file hoặc kéo thả nhiều ảnh vào đây
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 bg-slate-50/80 p-4 rounded-2xl border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                    <span className="flex items-center gap-2">
+                      <FileImage className="w-4 h-4 text-emerald-600" />
+                      Đã chọn <span className="text-indigo-600 font-extrabold">{uploadedFiles.length}</span> trang ảnh/tệp bài làm:
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-indigo-600 hover:text-indigo-800 text-xs font-bold flex items-center gap-1 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-indigo-200 hover:bg-indigo-50 transition-colors shadow-2xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Thêm ảnh khác
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearAllFiles}
+                        className="text-rose-600 hover:text-rose-800 text-xs font-bold cursor-pointer hover:underline"
+                      >
+                        Xóa tất cả
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Multi-file preview cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
+                    {uploadedFiles.map((file, idx) => (
+                      <div
+                        key={file.id}
+                        className="relative rounded-xl border border-slate-200 bg-white p-2.5 flex flex-col justify-between shadow-2xs hover:border-indigo-300 transition-colors"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">
+                            Trang {idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(file.id)}
+                            className="text-slate-400 hover:text-rose-600 p-1 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Xóa trang này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Thumbnail */}
+                        <div className="w-full h-32 rounded-lg overflow-hidden bg-slate-900 border border-slate-100 flex items-center justify-center mb-2">
+                          {file.mimeType.startsWith('image/') ? (
+                            <img
+                              src={file.base64}
+                              alt={`Trang ${idx + 1}`}
+                              className="w-full h-full object-contain"
+                            />
+                          ) : (
+                            <div className="text-center text-slate-300 p-2">
+                              <FileText className="w-8 h-8 mx-auto text-amber-400 mb-1" />
+                              <span className="text-[10px] font-bold uppercase">Tệp PDF</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="text-[11px] truncate font-medium text-slate-800">
+                          {file.name}
+                        </div>
+                        <div className="text-[10px] text-slate-400">{file.size}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add more button */}
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border border-dashed border-indigo-200 hover:border-indigo-400 rounded-xl p-2.5 text-center bg-white cursor-pointer hover:bg-indigo-50/50 transition-colors flex items-center justify-center gap-1.5 text-xs font-bold text-indigo-700"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Nhấp để chọn thêm ảnh các trang tiếp theo...
+                  </div>
                 </div>
               )}
             </div>
@@ -551,8 +674,7 @@ A. or  B. and  C. but  D. so (Học sinh chọn: A - Đúng)`);
               <button
                 onClick={() => {
                   setAnalysisResult(null);
-                  setFileBase64(null);
-                  setFileName(null);
+                  setUploadedFiles([]);
                   setRawText('');
                 }}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 border border-slate-200 flex items-center gap-1.5 cursor-pointer"

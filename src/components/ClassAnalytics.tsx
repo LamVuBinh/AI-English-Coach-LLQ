@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 
 export const ClassAnalytics: React.FC = () => {
-  const { classStudents, exams, submissions, userAccounts, showToast } = useApp();
+  const { classStudents, exams, submissions, userAccounts, showToast, setTeacherTab } = useApp();
 
   const [selectedExamId, setSelectedExamId] = useState<string>('all');
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>('all');
@@ -227,17 +227,22 @@ export const ClassAnalytics: React.FC = () => {
   }, [filteredSubmissions, cognitiveStats]);
 
   // 6. Dynamic Student Tiering based on real scores
-  const criticalStudents = useMemo(
-    () => dynamicStudents.filter((s) => s.avgScore < 6.0),
+  const studentsWithTests = useMemo(
+    () => dynamicStudents.filter((s) => s.testsDone > 0),
     [dynamicStudents]
+  );
+
+  const criticalStudents = useMemo(
+    () => studentsWithTests.filter((s) => s.avgScore < 6.0),
+    [studentsWithTests]
   );
   const moderateStudents = useMemo(
-    () => dynamicStudents.filter((s) => s.avgScore >= 6.0 && s.avgScore < 8.5),
-    [dynamicStudents]
+    () => studentsWithTests.filter((s) => s.avgScore >= 6.0 && s.avgScore < 8.5),
+    [studentsWithTests]
   );
   const excellentStudents = useMemo(
-    () => dynamicStudents.filter((s) => s.avgScore >= 8.5),
-    [dynamicStudents]
+    () => studentsWithTests.filter((s) => s.avgScore >= 8.5),
+    [studentsWithTests]
   );
 
   // 7. Trigger AI Report
@@ -570,108 +575,144 @@ export const ClassAnalytics: React.FC = () => {
               Danh Sách Phân Tầng Học Sinh Cần Kèm Cặp &amp; Bồi Dưỡng
             </h2>
           </div>
-          <span className="text-xs text-slate-500 font-medium">
-            Tự động đồng bộ từ điểm kiểm tra thực tế
-          </span>
+          {studentsWithTests.length > 0 ? (
+            <span className="text-xs text-slate-500 font-medium">
+              Đã ghi nhận <strong>{studentsWithTests.length}</strong>/{dynamicStudents.length} học sinh có điểm kiểm tra thực tế
+            </span>
+          ) : (
+            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full font-bold">
+              Chưa có học sinh làm bài
+            </span>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Critical Tier */}
-          <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-xs text-rose-950 uppercase tracking-wider">
-                Nhóm Cần Kèm Cặp Cấp Tốc (Dưới 6.0đ)
-              </h3>
-              <span className="bg-rose-200 text-rose-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
-                {criticalStudents.length} Học sinh
-              </span>
+        {studentsWithTests.length === 0 ? (
+          /* Trạng thái chưa có học sinh nào làm bài thi: Không hiển thị danh sách phân tầng */
+          <div className="bg-gradient-to-br from-slate-50 via-indigo-50/30 to-slate-50 rounded-2xl p-8 sm:p-10 border border-dashed border-slate-300 text-center space-y-4 animate-in fade-in">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center mx-auto shadow-2xs">
+              <Users className="w-7 h-7" />
             </div>
-            {criticalStudents.length === 0 ? (
-              <p className="text-[11px] text-slate-400 py-3 text-center">Không có học sinh dưới 6.0đ.</p>
-            ) : (
-              <ul className="space-y-2 text-xs text-slate-700">
-                {criticalStudents.map((st) => (
-                  <li
-                    key={st.id}
-                    className="bg-white p-2.5 rounded-xl border border-rose-100 flex items-center justify-between gap-2"
-                  >
-                    <div>
-                      <strong className="block text-slate-900">{st.name} ({st.avgScore.toFixed(1)}đ)</strong>
-                      <span className="text-[10px] text-slate-400">{st.targetSchool}</span>
-                    </div>
-                    <span className="text-rose-600 font-semibold text-[11px] text-right shrink-0">
-                      Hổng: {st.weakestTopic}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+            <div className="max-w-lg mx-auto space-y-1.5">
+              <h3 className="text-base font-black text-slate-900">
+                Chưa Có Học Sinh Nào Bắt Đầu Làm Bài Thi
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Hệ thống tạm thời chưa hiển thị danh sách phân tầng vì lớp chưa có bài thi nào được nộp. Bảng phân nhóm năng lực (<strong>Nhóm Cần Kèm Cặp Cấp Tốc &lt; 6.0đ</strong>, <strong>Nhóm Tăng Tốc 6.0 - 8.4đ</strong>, và <strong>Nhóm 8.5+ Ôn Chuyên</strong>) sẽ <strong>tự động kích hoạt</strong> ngay khi các em bắt đầu làm bài kiểm tra hoặc bài khảo sát năng lực đầu tiên.
+              </p>
+            </div>
 
-          {/* Moderate Tier */}
-          <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-xs text-indigo-950 uppercase tracking-wider">
-                Nhóm Tăng Tốc (6.0 - 8.4đ)
-              </h3>
-              <span className="bg-indigo-200 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
-                {moderateStudents.length} Học sinh
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+              <span className="text-xs font-semibold text-slate-600 bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                Tổng số học sinh trong lớp: <strong className="text-indigo-700">{dynamicStudents.length}</strong> em
               </span>
-            </div>
-            {moderateStudents.length === 0 ? (
-              <p className="text-[11px] text-slate-400 py-3 text-center">Không có học sinh trong nhóm này.</p>
-            ) : (
-              <ul className="space-y-2 text-xs text-slate-700">
-                {moderateStudents.map((st) => (
-                  <li
-                    key={st.id}
-                    className="bg-white p-2.5 rounded-xl border border-indigo-100 flex items-center justify-between gap-2"
-                  >
-                    <div>
-                      <strong className="block text-slate-900">{st.name} ({st.avgScore.toFixed(1)}đ)</strong>
-                      <span className="text-[10px] text-slate-400">{st.targetSchool}</span>
-                    </div>
-                    <span className="text-indigo-600 font-semibold text-[11px] text-right shrink-0">
-                      Luyện: {st.weakestTopic}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
 
-          {/* Excellent Tier */}
-          <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-xs text-emerald-950 uppercase tracking-wider">
-                Nhóm 8.5+ &amp; Ôn Thi Chuyên
-              </h3>
-              <span className="bg-emerald-200 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
-                {excellentStudents.length} Học sinh
-              </span>
+              <button
+                onClick={() => setTeacherTab('exam_management')}
+                className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-200 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <BookOpen className="w-3.5 h-3.5" /> Giao Đề Thi Cho Học Sinh
+              </button>
             </div>
-            {excellentStudents.length === 0 ? (
-              <p className="text-[11px] text-slate-400 py-3 text-center">Chưa có học sinh đạt &gt;= 8.5đ.</p>
-            ) : (
-              <ul className="space-y-2 text-xs text-slate-700">
-                {excellentStudents.map((st) => (
-                  <li
-                    key={st.id}
-                    className="bg-white p-2.5 rounded-xl border border-emerald-100 flex items-center justify-between gap-2"
-                  >
-                    <div>
-                      <strong className="block text-slate-900">{st.name} ({st.avgScore.toFixed(1)}đ)</strong>
-                      <span className="text-[10px] text-slate-400">{st.targetSchool}</span>
-                    </div>
-                    <span className="text-emerald-600 font-semibold text-[11px] text-right shrink-0">
-                      Tối ưu bẫy Vận dụng cao
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
-        </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Critical Tier */}
+            <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-xs text-rose-950 uppercase tracking-wider">
+                  Nhóm Cần Kèm Cặp Cấp Tốc (Dưới 6.0đ)
+                </h3>
+                <span className="bg-rose-200 text-rose-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                  {criticalStudents.length} Học sinh
+                </span>
+              </div>
+              {criticalStudents.length === 0 ? (
+                <p className="text-[11px] text-slate-400 py-3 text-center">Không có học sinh dưới 6.0đ.</p>
+              ) : (
+                <ul className="space-y-2 text-xs text-slate-700">
+                  {criticalStudents.map((st) => (
+                    <li
+                      key={st.id}
+                      className="bg-white p-2.5 rounded-xl border border-rose-100 flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <strong className="block text-slate-900">{st.name} ({st.avgScore.toFixed(1)}đ)</strong>
+                        <span className="text-[10px] text-slate-400">{st.targetSchool}</span>
+                      </div>
+                      <span className="text-rose-600 font-semibold text-[11px] text-right shrink-0">
+                        Hổng: {st.weakestTopic}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Moderate Tier */}
+            <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-xs text-indigo-950 uppercase tracking-wider">
+                  Nhóm Tăng Tốc (6.0 - 8.4đ)
+                </h3>
+                <span className="bg-indigo-200 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                  {moderateStudents.length} Học sinh
+                </span>
+              </div>
+              {moderateStudents.length === 0 ? (
+                <p className="text-[11px] text-slate-400 py-3 text-center">Không có học sinh trong nhóm này.</p>
+              ) : (
+                <ul className="space-y-2 text-xs text-slate-700">
+                  {moderateStudents.map((st) => (
+                    <li
+                      key={st.id}
+                      className="bg-white p-2.5 rounded-xl border border-indigo-100 flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <strong className="block text-slate-900">{st.name} ({st.avgScore.toFixed(1)}đ)</strong>
+                        <span className="text-[10px] text-slate-400">{st.targetSchool}</span>
+                      </div>
+                      <span className="text-indigo-600 font-semibold text-[11px] text-right shrink-0">
+                        Luyện: {st.weakestTopic}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Excellent Tier */}
+            <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-xs text-emerald-950 uppercase tracking-wider">
+                  Nhóm 8.5+ &amp; Ôn Thi Chuyên
+                </h3>
+                <span className="bg-emerald-200 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                  {excellentStudents.length} Học sinh
+                </span>
+              </div>
+              {excellentStudents.length === 0 ? (
+                <p className="text-[11px] text-slate-400 py-3 text-center">Chưa có học sinh đạt &gt;= 8.5đ.</p>
+              ) : (
+                <ul className="space-y-2 text-xs text-slate-700">
+                  {excellentStudents.map((st) => (
+                    <li
+                      key={st.id}
+                      className="bg-white p-2.5 rounded-xl border border-emerald-100 flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <strong className="block text-slate-900">{st.name} ({st.avgScore.toFixed(1)}đ)</strong>
+                        <span className="text-[10px] text-slate-400">{st.targetSchool}</span>
+                      </div>
+                      <span className="text-emerald-600 font-semibold text-[11px] text-right shrink-0">
+                        Tối ưu bẫy Vận dụng cao
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

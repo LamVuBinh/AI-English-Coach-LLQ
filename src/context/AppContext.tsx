@@ -11,6 +11,7 @@ import {
 import { SAMPLE_EXAMS } from '../data/sampleExams';
 import { INITIAL_STUDENT_PROFILE, INITIAL_ROADMAP } from '../data/mockClassData';
 import { extractPassagesAndCleanQuestions } from '../utils/questionCleaner';
+import { normalizeExam, normalizeExamList } from '../utils/examUtils';
 import {
   auth,
   loginWithGoogle,
@@ -241,9 +242,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Exams state
   const [exams, setExams] = useState<Exam[]>(() => {
     const saved = localStorage.getItem('ai_coach_exams');
-    return saved ? JSON.parse(saved) : SAMPLE_EXAMS;
+    const list = saved ? JSON.parse(saved) : SAMPLE_EXAMS;
+    return normalizeExamList(list);
   });
-  const [currentExam, setCurrentExam] = useState<Exam | null>(null);
+  const [currentExam, setCurrentExamState] = useState<Exam | null>(null);
+  const setCurrentExam = (action: Exam | null | ((prev: Exam | null) => Exam | null)) => {
+    setCurrentExamState((prev) => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      return next ? normalizeExam(next) : null;
+    });
+  };
   const [diagnosticExamId, setDiagnosticExamId] = useState<string>(() => {
     return localStorage.getItem('ai_coach_diagnostic_exam_id') || 'exam-diagnostic-1';
   });
@@ -384,10 +392,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             !e.description?.includes('phỏng vấn 4 giáo viên')
         );
         const activeDiagId = localStorage.getItem('ai_coach_diagnostic_exam_id') || diagnosticExamId;
-        const mapped = filtered.map((e) => ({
-          ...e,
-          isDiagnostic: e.id === activeDiagId,
-        }));
+        const mapped = filtered.map((e) =>
+          normalizeExam({
+            ...e,
+            isDiagnostic: e.id === activeDiagId,
+          })
+        );
         setExams(mapped);
       }
     });
@@ -609,7 +619,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addExam = async (exam: Exam) => {
     const cleanedQuestions = extractPassagesAndCleanQuestions(exam.questions || []);
-    const sanitizedExam = { ...exam, questions: cleanedQuestions };
+    const sanitizedExam = normalizeExam({ ...exam, questions: cleanedQuestions });
     setExams((prev) => [sanitizedExam, ...prev]);
 
     // Persist to Firestore
@@ -628,7 +638,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sanitizedUpdate.questions = extractPassagesAndCleanQuestions(updatedExam.questions);
     }
     setExams((prev) => {
-      const updatedList = prev.map((e) => (e.id === examId ? { ...e, ...sanitizedUpdate } : e));
+      const updatedList = prev.map((e) => {
+        if (e.id === examId) {
+          return normalizeExam({ ...e, ...sanitizedUpdate });
+        }
+        return e;
+      });
       const targetExam = updatedList.find((e) => e.id === examId);
       if (targetExam) {
         saveExamToFirestore(targetExam).catch(console.warn);
@@ -636,7 +651,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updatedList;
     });
     if (currentExam?.id === examId) {
-      setCurrentExam((prev) => (prev ? { ...prev, ...sanitizedUpdate } : null));
+      setCurrentExam((prev) => (prev ? normalizeExam({ ...prev, ...sanitizedUpdate }) : null));
     }
     showToast(`Đã cập nhật đề thi "${updatedExam.title || 'đề khảo sát'}" trên Firestore!`);
   };

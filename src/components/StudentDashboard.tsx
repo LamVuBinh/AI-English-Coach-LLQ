@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { SAMPLE_EXAMS } from '../data/sampleExams';
+import { InteractiveTopicPracticeModal } from './InteractiveTopicPracticeModal';
+import { getTopicPracticeSetForWeek } from '../data/roadmapTopicExercises';
 
 export const WORD_FORM_ROADMAP_PRESETS = [
   {
@@ -114,6 +116,26 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
   const [showWordFormCustomizer, setShowWordFormCustomizer] = React.useState(false);
   const [selectedWordFormPreset, setSelectedWordFormPreset] = React.useState('suffixes_mastery');
   const [showSurveyRequiredModal, setShowSurveyRequiredModal] = React.useState(false);
+  const [activeTopicPracticeModal, setActiveTopicPracticeModal] = React.useState<{
+    weekNumber: number;
+    phaseIndex: number;
+    weekIndex: number;
+    isCompleted: boolean;
+  } | null>(null);
+
+  const handleOpenTopicPractice = (weekNum: number, pIdx: number, wIdx: number, isDone: boolean) => {
+    if (!isDiagnosticCompleted) {
+      showToast('⚠️ Em cần hoàn thành bài khảo sát đánh giá năng lực đầu vào trước để mở khóa bài tập nhé!');
+      setShowSurveyRequiredModal(true);
+      return;
+    }
+    setActiveTopicPracticeModal({
+      weekNumber: weekNum,
+      phaseIndex: pIdx,
+      weekIndex: wIdx,
+      isCompleted: isDone,
+    });
+  };
 
   const handleApplyWordFormRoadmap = (presetId: string) => {
     const preset = WORD_FORM_ROADMAP_PRESETS.find((p) => p.id === presetId);
@@ -619,6 +641,46 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
                                 <Zap className="w-3.5 h-3.5" /> Checkpoint:{' '}
                                 <strong className="text-slate-800">{week.checkpointTest}</strong>
                               </span>
+                            </div>
+
+                            {/* Practice Exercises according to Roadmap */}
+                            <div className="bg-indigo-50/90 border border-indigo-200 rounded-2xl p-3.5 mt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8.5 h-8.5 rounded-xl bg-indigo-600 text-white font-black flex items-center justify-center shrink-0 shadow-xs">
+                                  <Play className="w-4 h-4 fill-white" />
+                                </div>
+                                <div>
+                                  <h5 className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
+                                    Bài Tập Luyện Tập Theo Lộ Trình (Tuần {week.weekNumber})
+                                  </h5>
+                                  <p className="text-[11px] text-indigo-800 font-medium leading-tight">
+                                    Luyện 10 câu bóc tách lỗ hổng &amp; tự động chấm điểm kèm giải thích chi tiết
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                                <button
+                                  onClick={() => handleOpenTopicPractice(week.weekNumber, pIdx, wIdx, isDone)}
+                                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-1 sm:flex-initial"
+                                >
+                                  <Play className="w-3.5 h-3.5 fill-white" /> 🚀 Làm Bài Tập Ngay
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (!isDiagnosticCompleted) {
+                                      showToast('⚠️ Em cần hoàn thành bài khảo sát đánh giá năng lực đầu vào trước nhé!');
+                                      setShowSurveyRequiredModal(true);
+                                      return;
+                                    }
+                                    const test = SAMPLE_EXAMS.find((e) => e.id !== diagnosticExamId) || SAMPLE_EXAMS[0];
+                                    handleStartExam(test);
+                                  }}
+                                  className="px-3 py-2 bg-white hover:bg-amber-50 border border-amber-300 text-amber-900 text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-1 sm:flex-initial"
+                                >
+                                  <Zap className="w-3.5 h-3.5 text-amber-600" /> Mini-Test
+                                </button>
+                              </div>
                             </div>
                           </div>
 
@@ -1276,6 +1338,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ onOpenGoalMo
             </div>
           </div>
         </div>
+      )}
+      {/* INTERACTIVE TOPIC PRACTICE MODAL FOR ROADMAP */}
+      {activeTopicPracticeModal && (
+        <InteractiveTopicPracticeModal
+          practiceSet={getTopicPracticeSetForWeek(activeTopicPracticeModal.weekNumber)}
+          phaseIndex={activeTopicPracticeModal.phaseIndex}
+          weekIndex={activeTopicPracticeModal.weekIndex}
+          isWeekAlreadyCompleted={activeTopicPracticeModal.isCompleted}
+          onClose={() => setActiveTopicPracticeModal(null)}
+          onCompleteTask={(pIdx, wIdx) => handleTaskToggle(pIdx, wIdx, false)}
+        />
       )}
     </div>
   );

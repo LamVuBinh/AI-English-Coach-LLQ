@@ -21,6 +21,7 @@ import {
   Lock,
   KeyRound,
 } from 'lucide-react';
+import { SAMPLE_EXAMS } from '../data/sampleExams';
 
 interface HeaderProps {
   onOpenGoalModal: () => void;
@@ -41,7 +42,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenGoalModal }) => {
     setAuthModalOpen,
     logout,
     openAiConfigModal,
+    submissions,
+    diagnosticExamId,
+    exams,
   } = useApp();
+
+  const completedExamIds = new Set(submissions.map((s) => s.examId));
+  const diagnosticExam =
+    exams.find((e) => e.id === diagnosticExamId) ||
+    SAMPLE_EXAMS.find((e) => e.id === diagnosticExamId) ||
+    exams.find((e) => e.isDiagnostic) ||
+    SAMPLE_EXAMS[0];
+  const isDiagnosticCompleted = completedExamIds.has(diagnosticExam?.id);
 
   // Calculate days left to exam
   const examDate = new Date(studentProfile.examDate);
@@ -166,7 +178,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenGoalModal }) => {
                   }`}
                 >
                   <Layers className="w-4 h-4" />
-                  Lộ trình Cá nhân
+                  <span>Lộ trình Cá nhân</span>
+                  {!isDiagnosticCompleted && (
+                    <span className="bg-amber-400 text-indigo-950 text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs">
+                      Chưa khảo sát
+                    </span>
+                  )}
                 </button>
 
                 <button

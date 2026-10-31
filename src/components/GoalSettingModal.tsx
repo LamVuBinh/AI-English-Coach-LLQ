@@ -11,6 +11,9 @@ import {
   AlertCircle,
   CheckCircle,
   Loader2,
+  BookOpen,
+  FileText,
+  ExternalLink,
 } from 'lucide-react';
 
 interface GoalSettingModalProps {
@@ -41,6 +44,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({ isOpen, onCl
   const [targetScore, setTargetScore] = useState(studentProfile.targetScore);
   const [dailyHours, setDailyHours] = useState(studentProfile.dailyStudyMinutes / 60);
   const [examDate, setExamDate] = useState(studentProfile.examDate);
+  const [wordFormLevel, setWordFormLevel] = useState<'level1' | 'level2' | 'level3' | 'level4'>('level2');
   const [isGenerating, setIsGenerating] = useState(false);
 
   if (!isOpen) return null;
@@ -69,6 +73,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({ isOpen, onCl
         availableHoursPerDay: dailyHours,
         examDate,
         weakTopics: studentProfile.weakTopics.map((w) => w.topic),
+        wordFormLevel,
       });
 
       setRoadmap(newRoadmap);
@@ -208,6 +213,87 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({ isOpen, onCl
               onChange={(e) => setExamDate(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
             />
+          </div>
+
+          {/* Word Form Topic Roadmapping Section referencing the PDF */}
+          <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-xs sm:text-sm text-indigo-950 flex items-center gap-1.5">
+                    Lên lộ trình Chuyên đề Word Form (Câu 31 - 36)
+                  </h4>
+                  <p className="text-[11px] text-indigo-700">
+                    Bám sát tài liệu chuẩn: <strong>&quot;TRẠNG ĐỘNG TRẠNG TÍNH DANH&quot;</strong>
+                  </p>
+                </div>
+              </div>
+
+              <a
+                href="/assets/aistudio/C_CH_L_M_WORD_FORM_537ba9b3.pdf"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 bg-white/80 hover:bg-white px-2.5 py-1 rounded-lg border border-indigo-200 flex items-center gap-1 transition-colors cursor-pointer"
+                title="Xem tài liệu PDF gốc"
+              >
+                <FileText className="w-3.5 h-3.5 text-indigo-600" /> Xem tài liệu PDF gốc
+                <ExternalLink className="w-3 h-3 opacity-60" />
+              </a>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Chọn trọng tâm năng lực Word Form để AI tự động cấu trúc nhiệm vụ tuần ôn luyện theo tài liệu:
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              {[
+                {
+                  id: 'level1',
+                  name: 'Mức 1: Củng cố Vị trí 4 Từ loại',
+                  desc: 'Học chắc 7 vị trí Danh từ, 3 vị trí Tính từ, 2 vị trí Trạng từ & 4 cấu trúc Động từ theo thần chú "Trạng Động Trạng Tính Danh".',
+                },
+                {
+                  id: 'level2',
+                  name: 'Mức 2: Thuộc lòng Bảng Hậu tố',
+                  desc: 'Luyện nhận diện hậu tố Danh (-tion, -ment...), Động (-ize, -ate...), Tính (-al, -ful, -able...), Trạng (-ly) & quy trình 2 bước.',
+                },
+                {
+                  id: 'level3',
+                  name: 'Mức 3: Chinh phục Bẫy đề thi',
+                  desc: 'Chuyên sâu bẫy Linking verbs, cấu trúc truyền khiến have/get, spend time V-ing và tiền tố phủ định un-, in-, im-, dis-.',
+                },
+                {
+                  id: 'level4',
+                  name: 'Mức 4: Thực chiến 6/6 Tuyệt đối',
+                  desc: 'Luyện 50+ câu trích từ đề thi vào 10 TP.HCM các năm, tối ưu tốc độ làm dưới 5 phút và chuẩn xác 100%.',
+                },
+              ].map((lvl) => (
+                <div
+                  key={lvl.id}
+                  onClick={() => setWordFormLevel(lvl.id as any)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer ${
+                    wordFormLevel === lvl.id
+                      ? 'bg-white border-indigo-600 ring-2 ring-indigo-500/20 shadow-xs'
+                      : 'bg-white/60 border-indigo-100 hover:border-indigo-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between font-bold text-slate-900 text-xs mb-1">
+                    <span className={wordFormLevel === lvl.id ? 'text-indigo-700' : 'text-slate-800'}>
+                      {lvl.name}
+                    </span>
+                    {wordFormLevel === lvl.id && (
+                      <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">
+                        ✓
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-snug">{lvl.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* AI Notice Banner */}

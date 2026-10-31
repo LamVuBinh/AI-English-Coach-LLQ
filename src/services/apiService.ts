@@ -480,6 +480,7 @@ export const apiService = {
     availableHoursPerDay: number;
     examDate: string;
     weakTopics?: string[];
+    wordFormLevel?: 'level1' | 'level2' | 'level3' | 'level4';
   }): Promise<PersonalizedRoadmap> {
     try {
       const res = await fetch('/api/ai/generate-roadmap', {

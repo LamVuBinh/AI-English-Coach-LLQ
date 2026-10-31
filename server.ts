@@ -1646,16 +1646,16 @@ Trả về định dạng JSON chuẩn.
               weeklyPlan: [
                 {
                   weekNumber: 1,
-                  weekTheme: 'Chuyên đề Word Formation Trọng Tâm (Hậu tố Danh từ & Tính từ)',
-                  grammarCore: 'Vị trí từ loại trong câu và các cặp tiền tố phủ định (un-, im-, in-, dis-, -tion, -ful, -less)',
-                  gdptCompetency: 'Năng lực cấu tạo từ vựng theo chủ đề Môi trường và Đời sống đô thị.',
+                  weekTheme: 'Chuyên đề Word Form Bứt Phá: Phương pháp "TRẠNG ĐỘNG TRẠNG TÍNH DANH" & Bảng Hậu Tố',
+                  grammarCore: 'Công thức vàng: "TRẠNG - ĐỘNG - TRẠNG - TÍNH - DANH", nhận diện 7 vị trí Danh từ, 3 vị trí Tính từ, 2 vị trí Trạng từ, 4 vị trí Động từ và bảng hậu tố chuẩn',
+                  gdptCompetency: 'Năng lực cấu tạo và biến đổi từ loại chuẩn ngữ cảnh thi vào 10 TP.HCM theo CT GDPT 2018.',
                   dailyTasks: [
-                    'Ngày 1: Nắm chắc quy tắc Adj + Noun và Verb + Adv.',
-                    'Ngày 2: Luyện 20 câu Word Form với gốc từ phổ biến (Pollution, Care, Success...).',
-                    'Ngày 3: Phân tích các câu bẫy tiền tố phủ định trích từ đề tuyển sinh 10 TP.HCM.',
-                    'Ngày 4: Làm mini-test 15 câu Word Formation có tính giờ.',
+                    'Ngày 1: Nắm chắc 7 vị trí Danh từ (sau Tính từ, a/an/the, this/that/these/those, tính từ sở hữu, giới từ, số lượng, need/bring/have...) & 3 vị trí Tính từ (trước Danh từ, sau to be, sau linking verbs: look, feel, seem, become, taste, smell, get...).',
+                    'Ngày 2: Nắm chắc 2 vị trí Trạng từ (sau Động từ thường, đầu câu có dấu phẩy) & 4 vị trí Động từ (sau S, sau Modal verbs, spend/waste + time + V-ing, thể truyền khiến have/get).',
+                    'Ngày 3: Học thuộc Bảng nhận diện hậu tố: Danh từ (-tion, -sion, -ment, -ce, -ness, -ty, -er/or/ee/ist), Động từ (-ize, -ate, -en, -fy), Tính từ (-al, -ful, -ive, -able/ible, -ous, -ic, -ant, -ing/-ed), Trạng từ (-ly).',
+                    'Ngày 4: Rèn luyện 20 câu Word Form chuẩn phần 6 đề thi Sở GD&ĐT TP.HCM (Câu 31-36), kết hợp kiểm tra tiền tố phủ định un-, im-, in-, dis-.',
                   ],
-                  hcmcFormatPractice: 'Luyện 10 câu Word Form chuẩn phần 6 đề thi Sở GD TP.HCM.',
+                  hcmcFormatPractice: 'Luyện 6 câu Word Form (Câu 31-36) chuẩn định dạng đề thi Sở GD&ĐT TP.HCM.',
                   checkpointTest: 'Bài kiểm tra Tuần 1: 20 câu Word Formation (Mục tiêu >= 9/10).',
                   isCompleted: false,
                 },
@@ -1807,6 +1807,7 @@ app.post('/api/ai/generate-roadmap', async (req, res) => {
       examDate,
       weakTopics = [],
       recentExamResults = [],
+      wordFormLevel = 'level2',
     } = req.body;
 
     const prompt = `
@@ -1819,6 +1820,7 @@ Hãy xây dựng một LỘ TRÌNH LUYỆN TẬP CÁ NHÂN HÓA TOÀN DIỆN:
 - Thời gian dành ra mỗi ngày: ${availableHoursPerDay || 1.5} giờ/ngày
 - Ngày thi dự kiến: ${examDate || 'Tháng 6/2026'}
 - Các chuyên đề bị hổng / điểm yếu phát hiện từ các bài làm trước: ${JSON.stringify(weakTopics)}
+- Mức độ trọng tâm Word Form học sinh chọn: ${wordFormLevel} (level1: Nhận diện 4 vị trí từ loại theo tài liệu; level2: Bảng hậu tố 4 từ loại & quy trình 2 bước; level3: Bẫy linking verbs, thể truyền khiến have/get, tiền tố phủ định; level4: Thực chiến 6/6 câu Word Form đề thi TP.HCM).
 
 Yêu cầu lộ trình:
 1. Chia thành các Giai đoạn (Phases) rõ ràng (Ví dụ: Giai đoạn 1: Bịt lỗ hổng Ngữ pháp nền tảng & Dạng thức từ; Giai đoạn 2: Nâng cao kỹ năng Đọc hiểu thực tế & Biển báo Notice; Giai đoạn 3: Chinh phục Vận dụng cao - Viết lại câu & Câu phân loại; Giai đoạn 4: Luyện đề tổng hợp & Tối ưu thời gian làm bài).
